@@ -24,25 +24,24 @@ entity mem_map is
 end entity mem_map;
 
 architecture rtl of mem_map is
-    -- 4K Word RAM (0x2000 - 0x2FFF)
+    -- ================================================================
+    -- 4K Word RAM (0x2000 - 0x2FFF) - Coded for M9K inference
+    -- ================================================================
     type ram_type is array (0 to 4095) of std_logic_vector(15 downto 0);
-    signal ram : ram_type := (others => (others => '0'));
-
-    -- Synchronous RAM read pipeline
-    signal ram_addr_reg : integer range 0 to 4095 := 0;
-    signal ram_q        : std_logic_vector(15 downto 0) := (others => '0');
+    signal ram : ram_type;  -- No initialization for M9K inference
+    
+    -- RAM output register (M9K synchronous read - 1 cycle latency)
+    signal ram_dout : std_logic_vector(15 downto 0) := (others => '0');
     
     -- IO Registers
     signal reg_leds : std_logic_vector(9 downto 0) := (others => '0');
 
-    -- Read pipeline (registered address and data)
-    signal last_re    : std_logic := '0';
-    signal last_addr  : unsigned(15 downto 0) := (others => '0');
-    signal read_data  : std_logic_vector(15 downto 0) := (others => '0');
+    -- Attribute to force M9K block RAM (Quartus)
+    attribute ramstyle : string;
+    attribute ramstyle of ram : signal is "M9K";
 
     -- 7-seg helper
     function hex7(n : std_logic_vector(3 downto 0)) return std_logic_vector is
-        -- gfedcba active-low (DE10-Lite segment order)
         variable seg_lo : std_logic_vector(6 downto 0);
     begin
         case n is
@@ -63,7 +62,7 @@ architecture rtl of mem_map is
             when "1110" => seg_lo := "0000110"; -- E
             when others => seg_lo := "0001110"; -- F
         end case;
-        return '1' & seg_lo; -- MSB is DP (off=1), segments active low
+        return '1' & seg_lo;
     end function;
 
 begin
@@ -74,67 +73,62 @@ begin
     hex0 <= hex7(reg_leds(3 downto 0));
     hex1 <= hex7(reg_leds(7 downto 4));
     hex2 <= hex7("00" & reg_leds(9 downto 8));
-    -- Keep unused digits off
     hex3 <= (others => '1');
     hex4 <= (others => '1');
     hex5 <= (others => '1');
 
-    process(clk)
+    -- ================================================================
+    -- M9K RAM process - synchronous read/write, 1-cycle read latency
+    -- ================================================================
+    ram_proc: process(clk)
+        variable ram_addr : integer range 0 to 4095;
+    begin
+        if rising_edge(clk) then
+            -- Calculate RAM address (offset from 0x2000)
+            if to_integer(mem_addr) >= 16#2000# and to_integer(mem_addr) <= 16#2FFF# then
+                ram_addr := to_integer(mem_addr) - 16#2000#;
+            else
+                ram_addr := 0;
+            end if;
+            
+            -- Synchronous write
+            if mem_we = '1' then
+                if to_integer(mem_addr) >= 16#2000# and to_integer(mem_addr) <= 16#2FFF# then
+                    ram(ram_addr) <= mem_wdata;
+                end if;
+            end if;
+            
+            -- Synchronous read - data available NEXT cycle
+            ram_dout <= ram(ram_addr);
+        end if;
+    end process ram_proc;
+
+    -- ================================================================
+    -- MMIO register write/reset
+    -- ================================================================
+    mmio_proc: process(clk)
         variable addr_int : integer;
     begin
         if rising_edge(clk) then
             if rst = '1' then
-                -- Clear display on reset
                 reg_leds <= (others => '0');
-                last_re  <= '0';
-                mem_rdata <= (others => '0');
             else
                 addr_int := to_integer(mem_addr);
-
-            -- Register RAM read address every cycle (synchronous read)
-            if addr_int >= 16#2000# and addr_int <= 16#2FFF# then
-                ram_addr_reg <= addr_int - 16#2000#;
-            else
-                ram_addr_reg <= 0;
-            end if;
-
-            -- Synchronous RAM read output
-            ram_q <= ram(ram_addr_reg);
-
-            -- WRITE LOGIC
-            if mem_we = '1' then
-                -- RAM Region (0x2000 - 0x2FFF)
-                if addr_int >= 16#2000# and addr_int <= 16#2FFF# then
-                    ram(addr_int - 16#2000#) <= mem_wdata;
-                
-                -- MMIO: LEDS (0xFFFE)
-                elsif addr_int = 16#FFFE# then
+                if mem_we = '1' and addr_int = 16#FFFE# then
                     reg_leds <= mem_wdata(9 downto 0);
                 end if;
             end if;
-
-            -- Capture read request for synchronous, one-cycle latency
-            last_re   <= mem_re;
-            last_addr <= mem_addr;
-
-            if mem_re = '1' then
-                if addr_int >= 16#2000# and addr_int <= 16#2FFF# then
-                    read_data <= ram_q;
-                elsif addr_int = 16#FFFE# then
-                    read_data <= "000000" & reg_leds;
-                else
-                    read_data <= (others => '0');
-                end if;
-            end if;
-
-            -- Registered output data, valid one cycle after mem_re
-            if last_re = '1' then
-                mem_rdata <= read_data;
-            else
-                mem_rdata <= (others => '0');
-            end if;
-            end if; -- end of else (not reset)
         end if;
-    end process;
+    end process mmio_proc;
+
+    -- ================================================================
+    -- Read mux (COMBINATIONAL): CPU expects data during the cycle
+    -- after it asserts mem_re. ram_dout is already a registered
+    -- synchronous RAM output (M9K-friendly).
+    -- ================================================================
+    mem_rdata <=
+        ram_dout             when (mem_re = '1' and to_integer(mem_addr) >= 16#2000# and to_integer(mem_addr) <= 16#2FFF#) else
+        ("000000" & reg_leds) when (mem_re = '1' and to_integer(mem_addr) = 16#FFFE#) else
+        (others => '0');
 
 end architecture;
