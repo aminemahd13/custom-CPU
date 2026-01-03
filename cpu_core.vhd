@@ -83,6 +83,8 @@ begin
                     when S_RESET =>
                         pc <= (others => '0');
                         regs <= (others => (others => '0'));
+                        mem_addr <= (others => '0');
+                        mem_wdata <= (others => '0');
                         state <= S_FETCH;
 
                     when S_FETCH =>
@@ -164,10 +166,19 @@ begin
                         case op_code is
                             when x"40" | x"41" => -- LD, ST (Absolute)
                                 eff_addr <= imm_z;
+                                mem_addr <= imm_z; -- Drive address one cycle before WE/RE
                             when x"42" | x"43" => -- LDX, STX (Base + Offset)
                                 eff_addr <= unsigned(signed(regs(r_srcA)) + imm_s);
-                            when others => eff_addr <= (others => '0');
+                                mem_addr <= unsigned(signed(regs(r_srcA)) + imm_s);
+                            when others =>
+                                eff_addr <= (others => '0');
+                                mem_addr <= (others => '0');
                         end case;
+
+                        -- Preload store data so it's stable when WE pulses
+                        if op_code(0) = '1' then
+                            mem_wdata <= regs(r_dest);
+                        end if;
 
                         if op_code(0) = '0' then -- Even opcodes are Loads (40, 42)
                             state <= S_MEM_READ;
@@ -176,7 +187,6 @@ begin
                         end if;
 
                     when S_MEM_READ =>
-                        mem_addr <= eff_addr;
                         mem_re   <= '1';
                         state    <= S_MEM_READ_WAIT;
 
@@ -188,8 +198,6 @@ begin
                         state <= S_FETCH;
 
                     when S_MEM_WRITE =>
-                        mem_addr  <= eff_addr;
-                        mem_wdata <= regs(r_dest); -- Store value comes from RD
                         mem_we    <= '1';
                         pc <= pc + 1;
                         state <= S_FETCH;

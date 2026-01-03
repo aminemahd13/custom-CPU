@@ -61,7 +61,13 @@ architecture rtl of CPU is
             mem_we     : in  std_logic;
             mem_re     : in  std_logic;
             mem_rdata  : out std_logic_vector(15 downto 0);
-            ledr_out   : out std_logic_vector(9 downto 0)
+            ledr_out   : out std_logic_vector(9 downto 0);
+            hex0       : out std_logic_vector(7 downto 0);
+            hex1       : out std_logic_vector(7 downto 0);
+            hex2       : out std_logic_vector(7 downto 0);
+            hex3       : out std_logic_vector(7 downto 0);
+            hex4       : out std_logic_vector(7 downto 0);
+            hex5       : out std_logic_vector(7 downto 0)
         );
     end component;
 
@@ -89,14 +95,6 @@ begin
     -- KEY(0) is active LOW on DE10-Lite (0 when pressed).
     -- We invert it so sys_rst is active HIGH (1 = Reset), which our CPU expects.
     sys_rst <= not KEY(0);
-
-    -- 2. Turn off HEX displays (Active LOW, so '1' = OFF)
-    HEX0 <= (others => '1');
-    HEX1 <= (others => '1');
-    HEX2 <= (others => '1');
-    HEX3 <= (others => '1');
-    HEX4 <= (others => '1');
-    HEX5 <= (others => '1');
 
     -- 3. Instantiate Instruction ROM (Holds the program)
     u_rom: instr_rom
@@ -129,7 +127,13 @@ begin
         mem_we    => bus_we,
         mem_re    => bus_re,
         mem_rdata => bus_rdata,
-        ledr_out  => LEDR  -- Connects the internal register to the physical LEDs
+        ledr_out  => LEDR,
+        hex0      => HEX0,
+        hex1      => HEX1,
+        hex2      => HEX2,
+        hex3      => HEX3,
+        hex4      => HEX4,
+        hex5      => HEX5
     );
 
 end architecture rtl;
