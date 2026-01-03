@@ -26,6 +26,10 @@ architecture rtl of mem_map is
     -- 4K Word RAM (0x2000 - 0x2FFF)
     type ram_type is array (0 to 4095) of std_logic_vector(15 downto 0);
     signal ram : ram_type := (others => (others => '0'));
+
+    -- Synchronous RAM read pipeline
+    signal ram_addr_reg : integer range 0 to 4095 := 0;
+    signal ram_q        : std_logic_vector(15 downto 0) := (others => '0');
     
     -- IO Registers
     signal reg_leds : std_logic_vector(9 downto 0) := (others => '0');
@@ -79,6 +83,16 @@ begin
         if rising_edge(clk) then
             addr_int := to_integer(mem_addr);
 
+            -- Register RAM read address every cycle (synchronous read)
+            if addr_int >= 16#2000# and addr_int <= 16#2FFF# then
+                ram_addr_reg <= addr_int - 16#2000#;
+            else
+                ram_addr_reg <= 0;
+            end if;
+
+            -- Synchronous RAM read output
+            ram_q <= ram(ram_addr_reg);
+
             -- WRITE LOGIC
             if mem_we = '1' then
                 -- RAM Region (0x2000 - 0x2FFF)
@@ -97,7 +111,7 @@ begin
 
             if mem_re = '1' then
                 if addr_int >= 16#2000# and addr_int <= 16#2FFF# then
-                    read_data <= ram(addr_int - 16#2000#);
+                    read_data <= ram_q;
                 elsif addr_int = 16#FFFE# then
                     read_data <= "000000" & reg_leds;
                 else
