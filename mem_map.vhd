@@ -41,27 +41,28 @@ architecture rtl of mem_map is
 
     -- 7-seg helper
     function hex7(n : std_logic_vector(3 downto 0)) return std_logic_vector is
-        variable seg_on : std_logic_vector(6 downto 0);
+        -- gfedcba active-low (DE10-Lite segment order)
+        variable seg_lo : std_logic_vector(6 downto 0);
     begin
         case n is
-            when "0000" => seg_on := "1111110"; -- 0
-            when "0001" => seg_on := "0110000"; -- 1
-            when "0010" => seg_on := "1101101"; -- 2
-            when "0011" => seg_on := "1111001"; -- 3
-            when "0100" => seg_on := "0110011"; -- 4
-            when "0101" => seg_on := "1011011"; -- 5
-            when "0110" => seg_on := "1011111"; -- 6
-            when "0111" => seg_on := "1110000"; -- 7
-            when "1000" => seg_on := "1111111"; -- 8
-            when "1001" => seg_on := "1111011"; -- 9
-            when "1010" => seg_on := "1110111"; -- A
-            when "1011" => seg_on := "0011111"; -- b
-            when "1100" => seg_on := "1001110"; -- C
-            when "1101" => seg_on := "0111101"; -- d
-            when "1110" => seg_on := "1001111"; -- E
-            when others => seg_on := "1000111"; -- F
+            when "0000" => seg_lo := "1000000"; -- 0
+            when "0001" => seg_lo := "1111001"; -- 1
+            when "0010" => seg_lo := "0100100"; -- 2
+            when "0011" => seg_lo := "0110000"; -- 3
+            when "0100" => seg_lo := "0011001"; -- 4
+            when "0101" => seg_lo := "0010010"; -- 5
+            when "0110" => seg_lo := "0000010"; -- 6
+            when "0111" => seg_lo := "1111000"; -- 7
+            when "1000" => seg_lo := "0000000"; -- 8
+            when "1001" => seg_lo := "0010000"; -- 9
+            when "1010" => seg_lo := "0001000"; -- A
+            when "1011" => seg_lo := "0000011"; -- b
+            when "1100" => seg_lo := "1000110"; -- C
+            when "1101" => seg_lo := "0100001"; -- d
+            when "1110" => seg_lo := "0000110"; -- E
+            when others => seg_lo := "0001110"; -- F
         end case;
-        return '1' & not seg_on; -- MSB is DP (off=1), segments are active low
+        return '1' & seg_lo; -- MSB is DP (off=1), segments active low
     end function;
 
 begin
