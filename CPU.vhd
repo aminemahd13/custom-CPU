@@ -34,6 +34,7 @@ architecture rtl of CPU is
     component instr_rom is
         port (
             clk      : in  std_logic;
+            rst      : in  std_logic;
             addr     : in  unsigned(15 downto 0);
             data_out : out std_logic_vector(31 downto 0)
         );
@@ -56,6 +57,7 @@ architecture rtl of CPU is
     component mem_map is
         port (
             clk        : in  std_logic;
+            rst        : in  std_logic;
             mem_addr   : in  unsigned(15 downto 0);
             mem_wdata  : in  std_logic_vector(15 downto 0);
             mem_we     : in  std_logic;
@@ -77,6 +79,8 @@ architecture rtl of CPU is
 
     -- Reset signal (Active High internally)
     signal sys_rst       : std_logic;
+    signal rst_sync1     : std_logic := '1';
+    signal rst_sync2     : std_logic := '1';
 
     -- CPU <-> ROM Interconnect
     signal cpu_pc        : unsigned(15 downto 0);
@@ -92,14 +96,23 @@ architecture rtl of CPU is
 begin
 
     -- 1. Reset Logic
-    -- KEY(0) is active LOW on DE10-Lite (0 when pressed).
-    -- Invert so sys_rst is active HIGH.
-    sys_rst <= not KEY(0);
+    -- KEY(0) is active LOW on DE10-Lite. Synchronize to CLOCK_50
+    -- to avoid metastability and ensure clean release.
+    process(CLOCK_50)
+    begin
+        if rising_edge(CLOCK_50) then
+            rst_sync1 <= not KEY(0);
+            rst_sync2 <= rst_sync1;
+        end if;
+    end process;
+
+    sys_rst <= rst_sync2;
 
     -- 3. Instantiate Instruction ROM (Holds the program)
     u_rom: instr_rom
     port map (
         clk      => CLOCK_50,
+        rst      => sys_rst,
         addr     => cpu_pc,
         data_out => cpu_instr
     );
@@ -122,6 +135,7 @@ begin
     u_mem: mem_map
     port map (
         clk       => CLOCK_50,
+        rst       => sys_rst,
         mem_addr  => bus_addr,
         mem_wdata => bus_wdata,
         mem_we    => bus_we,

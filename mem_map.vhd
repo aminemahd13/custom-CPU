@@ -5,6 +5,7 @@ use ieee.numeric_std.all;
 entity mem_map is
     port (
         clk        : in  std_logic;
+        rst        : in  std_logic;
         mem_addr   : in  unsigned(15 downto 0);
         mem_wdata  : in  std_logic_vector(15 downto 0);
         mem_we     : in  std_logic;
@@ -82,7 +83,13 @@ begin
         variable addr_int : integer;
     begin
         if rising_edge(clk) then
-            addr_int := to_integer(mem_addr);
+            if rst = '1' then
+                -- Clear display on reset
+                reg_leds <= (others => '0');
+                last_re  <= '0';
+                mem_rdata <= (others => '0');
+            else
+                addr_int := to_integer(mem_addr);
 
             -- Register RAM read address every cycle (synchronous read)
             if addr_int >= 16#2000# and addr_int <= 16#2FFF# then
@@ -126,6 +133,7 @@ begin
             else
                 mem_rdata <= (others => '0');
             end if;
+            end if; -- end of else (not reset)
         end if;
     end process;
 

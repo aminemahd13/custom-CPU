@@ -48,7 +48,6 @@ architecture rtl of cpu_core is
     
     -- ALU/Effective Addr Buffers
     signal eff_addr  : unsigned(15 downto 0);
-    signal alu_res   : std_logic_vector(15 downto 0);
 
 begin
     -- Output PC continuously
@@ -67,28 +66,33 @@ begin
         variable valA, valB : signed(15 downto 0);
         variable uValA : unsigned(15 downto 0);
         variable shamt : integer;
+        variable alu_result : std_logic_vector(15 downto 0); -- Use variable for immediate update
     begin
         if rising_edge(clk) then
             if rst = '1' then
-                state <= S_RESET;
-                pc    <= (others => '0');
-                mem_we <= '0';
-                mem_re <= '0';
+                -- Synchronous reset: force all state to a known initial value
+                state     <= S_RESET; -- Go to reset state, wait for ROM
+                pc        <= (others => '0');
+                regs      <= (others => (others => '0'));
+                mem_we    <= '0';
+                mem_re    <= '0';
+                mem_addr  <= (others => '0');
+                mem_wdata <= (others => '0');
+                instr_reg <= (others => '0');
             else
-                -- Default strobes
+                -- Default strobes, can be overridden by states
                 mem_we <= '0';
                 mem_re <= '0';
                 
                 case state is
                     when S_RESET =>
-                        pc <= (others => '0');
-                        regs <= (others => (others => '0'));
-                        mem_addr <= (others => '0');
-                        mem_wdata <= (others => '0');
+                        -- Wait one cycle for ROM to output instruction at PC=0
+                        -- ROM preloads instruction 0 during reset, now it's stable
                         state <= S_FETCH;
 
                     when S_FETCH =>
-                        -- PC is already driving address port via pc_out
+                        -- PC is driving the instruction memory address via pc_out.
+                        -- Wait one cycle for the synchronous ROM to provide the data.
                         state <= S_FETCH_WAIT;
 
                     when S_FETCH_WAIT =>
@@ -116,28 +120,28 @@ begin
                         valB := signed(regs(r_srcB));
                         shamt := to_integer(unsigned(imm16(3 downto 0)));
                         
-                        -- ALU Operation
+                        -- ALU Operation (use variable for immediate result)
                         case op_code is
-                            when x"01" => alu_res <= imm16; -- LDI
-                            when x"02" => alu_res <= regs(r_srcA); -- MV
-                            when x"10" => alu_res <= std_logic_vector(valA + valB); -- ADD
-                            when x"11" => alu_res <= std_logic_vector(valA - valB); -- SUB
-                            when x"12" => alu_res <= std_logic_vector(valA + imm_s); -- ADDI
-                            when x"20" => alu_res <= regs(r_srcA) and regs(r_srcB); -- AND
-                            when x"21" => alu_res <= regs(r_srcA) or regs(r_srcB);  -- OR
-                            when x"22" => alu_res <= regs(r_srcA) xor regs(r_srcB); -- XOR
-                            when x"23" => alu_res <= regs(r_srcA) and imm16; -- ANDI
-                            when x"24" => alu_res <= regs(r_srcA) or imm16;  -- ORI
-                            when x"25" => alu_res <= regs(r_srcA) xor imm16; -- XORI
-                            when x"30" => alu_res <= std_logic_vector(shift_left(unsigned(regs(r_srcA)), shamt)); -- SHL
-                            when x"31" => alu_res <= std_logic_vector(shift_right(unsigned(regs(r_srcA)), shamt)); -- SHR
-                            when x"32" => alu_res <= std_logic_vector(shift_right(signed(regs(r_srcA)), shamt)); -- SAR
-                            when others => alu_res <= (others => '0');
+                            when x"01" => alu_result := imm16; -- LDI
+                            when x"02" => alu_result := regs(r_srcA); -- MV
+                            when x"10" => alu_result := std_logic_vector(valA + valB); -- ADD
+                            when x"11" => alu_result := std_logic_vector(valA - valB); -- SUB
+                            when x"12" => alu_result := std_logic_vector(valA + imm_s); -- ADDI
+                            when x"20" => alu_result := regs(r_srcA) and regs(r_srcB); -- AND
+                            when x"21" => alu_result := regs(r_srcA) or regs(r_srcB);  -- OR
+                            when x"22" => alu_result := regs(r_srcA) xor regs(r_srcB); -- XOR
+                            when x"23" => alu_result := regs(r_srcA) and imm16; -- ANDI
+                            when x"24" => alu_result := regs(r_srcA) or imm16;  -- ORI
+                            when x"25" => alu_result := regs(r_srcA) xor imm16; -- XORI
+                            when x"30" => alu_result := std_logic_vector(shift_left(unsigned(regs(r_srcA)), shamt)); -- SHL
+                            when x"31" => alu_result := std_logic_vector(shift_right(unsigned(regs(r_srcA)), shamt)); -- SHR
+                            when x"32" => alu_result := std_logic_vector(shift_right(signed(regs(r_srcA)), shamt)); -- SAR
+                            when others => alu_result := (others => '0');
                         end case;
                         
-                        -- Writeback (R0 is constant zero)
+                        -- Writeback (R0 is constant zero) - variable has correct value immediately
                         if r_dest /= 0 then
-                            regs(r_dest) <= alu_res; -- Note: This writes NEXT cycle, so fine.
+                            regs(r_dest) <= alu_result;
                         end if;
                         
                         pc <= pc + 1;
@@ -207,7 +211,7 @@ begin
                         state <= S_HALT; -- Spin forever
                         
                     when others =>
-                        state <= S_RESET;
+                        state <= S_FETCH;
                 end case;
             end if;
         end if;
