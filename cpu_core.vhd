@@ -144,7 +144,8 @@ begin
                         state <= S_FETCH;
 
                     when S_EXEC_BRANCH =>
-                        pc <= pc + 1; -- Default increment
+                        -- Default is to increment PC
+                        pc <= pc + 1; 
                         
                         case op_code is
                             when x"50" => -- BEQ

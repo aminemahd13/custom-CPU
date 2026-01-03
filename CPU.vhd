@@ -93,7 +93,7 @@ begin
 
     -- 1. Reset Logic
     -- KEY(0) is active LOW on DE10-Lite (0 when pressed).
-    -- We invert it so sys_rst is active HIGH (1 = Reset), which our CPU expects.
+    -- Invert so sys_rst is active HIGH.
     sys_rst <= not KEY(0);
 
     -- 3. Instantiate Instruction ROM (Holds the program)

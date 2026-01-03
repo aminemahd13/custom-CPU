@@ -11,7 +11,11 @@ set_global_assignment -name PROJECT_CREATION_TIME_DATE "18:54:51 MARCH 19,2015"
 set_global_assignment -name DEVICE_FILTER_PACKAGE FBGA
 set_global_assignment -name DEVICE_FILTER_PIN_COUNT 484
 set_global_assignment -name DEVICE_FILTER_SPEED_GRADE 6
-
+#============================================================
+# Clock pin for CPU top-level CLOCK_50 (use 50 MHz oscillator)
+#============================================================
+set_location_assignment PIN_P11 -to CLOCK_50
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to CLOCK_50
 #============================================================
 # disable config pin so bank8 can use 1.2V 
 #============================================================
