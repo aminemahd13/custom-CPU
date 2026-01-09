@@ -62,158 +62,156 @@ begin
     imm_s   <= signed(imm16);
     imm_z   <= unsigned(imm16);
 
-    process(clk)
+    process(clk, rst)
         variable valA, valB : signed(15 downto 0);
         variable uValA : unsigned(15 downto 0);
         variable shamt : integer;
         variable alu_result : std_logic_vector(15 downto 0); -- Use variable for immediate update
     begin
-        if rising_edge(clk) then
-            if rst = '1' then
-                -- Synchronous reset: force all state to a known initial value
-                state     <= S_RESET; -- Go to reset state, wait for ROM
-                pc        <= (others => '0');
-                regs      <= (others => (others => '0'));
-                mem_we    <= '0';
-                mem_re    <= '0';
-                mem_addr  <= (others => '0');
-                mem_wdata <= (others => '0');
-                instr_reg <= (others => '0');
-            else
-                -- Default strobes, can be overridden by states
-                mem_we <= '0';
-                mem_re <= '0';
-                
-                case state is
-                    when S_RESET =>
-                        -- Wait one cycle for ROM to output instruction at PC=0
-                        -- ROM preloads instruction 0 during reset, now it's stable
-                        state <= S_FETCH;
+        if rst = '1' then
+            -- Asynchronous reset: force all state to a known initial value
+            state     <= S_RESET; -- Go to reset state, wait for ROM
+            pc        <= (others => '0');
+            regs      <= (others => (others => '0'));
+            mem_we    <= '0';
+            mem_re    <= '0';
+            mem_addr  <= (others => '0');
+            mem_wdata <= (others => '0');
+            instr_reg <= (others => '0');
+        elsif rising_edge(clk) then
+            -- Default strobes, can be overridden by states
+            mem_we <= '0';
+            mem_re <= '0';
+            
+            case state is
+                when S_RESET =>
+                    -- Wait one cycle for ROM to output instruction at PC=0
+                    -- ROM preloads instruction 0 during reset, now it's stable
+                    state <= S_FETCH;
 
-                    when S_FETCH =>
-                        -- PC is driving the instruction memory address via pc_out.
-                        -- Wait one cycle for the synchronous ROM to provide the data.
-                        state <= S_FETCH_WAIT;
+                when S_FETCH =>
+                    -- PC is driving the instruction memory address via pc_out.
+                    -- Wait one cycle for the synchronous ROM to provide the data.
+                    state <= S_FETCH_WAIT;
 
-                    when S_FETCH_WAIT =>
-                        -- Capture instruction from ROM
-                        instr_reg <= instr_in;
-                        state <= S_DECODE;
+                when S_FETCH_WAIT =>
+                    -- Capture instruction from ROM
+                    instr_reg <= instr_in;
+                    state <= S_DECODE;
 
-                    when S_DECODE =>
-                        -- Decide path based on Opcode
-                        if op_code = x"00" then -- NOP
-                            pc <= pc + 1;
-                            state <= S_FETCH;
-                        elsif op_code(7 downto 4) = x"4" then -- Memory Ops (LD, ST)
-                            state <= S_MEM_ADDR;
-                        elsif op_code(7 downto 4) = x"5" then -- Branch Ops
-                            state <= S_EXEC_BRANCH;
-                        elsif op_code = x"FF" then -- HALT
-                            state <= S_HALT;
-                        else -- ALU Ops (0x01..0x3F)
-                            state <= S_EXEC_ALU;
-                        end if;
-
-                    when S_EXEC_ALU =>
-                        valA := signed(regs(r_srcA));
-                        valB := signed(regs(r_srcB));
-                        shamt := to_integer(unsigned(imm16(3 downto 0)));
-                        
-                        -- ALU Operation (use variable for immediate result)
-                        case op_code is
-                            when x"01" => alu_result := imm16; -- LDI
-                            when x"02" => alu_result := regs(r_srcA); -- MV
-                            when x"10" => alu_result := std_logic_vector(valA + valB); -- ADD
-                            when x"11" => alu_result := std_logic_vector(valA - valB); -- SUB
-                            when x"12" => alu_result := std_logic_vector(valA + imm_s); -- ADDI
-                            when x"20" => alu_result := regs(r_srcA) and regs(r_srcB); -- AND
-                            when x"21" => alu_result := regs(r_srcA) or regs(r_srcB);  -- OR
-                            when x"22" => alu_result := regs(r_srcA) xor regs(r_srcB); -- XOR
-                            when x"23" => alu_result := regs(r_srcA) and imm16; -- ANDI
-                            when x"24" => alu_result := regs(r_srcA) or imm16;  -- ORI
-                            when x"25" => alu_result := regs(r_srcA) xor imm16; -- XORI
-                            when x"30" => alu_result := std_logic_vector(shift_left(unsigned(regs(r_srcA)), shamt)); -- SHL
-                            when x"31" => alu_result := std_logic_vector(shift_right(unsigned(regs(r_srcA)), shamt)); -- SHR
-                            when x"32" => alu_result := std_logic_vector(shift_right(signed(regs(r_srcA)), shamt)); -- SAR
-                            when others => alu_result := (others => '0');
-                        end case;
-                        
-                        -- Writeback (R0 is constant zero) - variable has correct value immediately
-                        if r_dest /= 0 then
-                            regs(r_dest) <= alu_result;
-                        end if;
-                        
+                when S_DECODE =>
+                    -- Decide path based on Opcode
+                    if op_code = x"00" then -- NOP
                         pc <= pc + 1;
                         state <= S_FETCH;
+                    elsif op_code(7 downto 4) = x"4" then -- Memory Ops (LD, ST)
+                        state <= S_MEM_ADDR;
+                    elsif op_code(7 downto 4) = x"5" then -- Branch Ops
+                        state <= S_EXEC_BRANCH;
+                    elsif op_code = x"FF" then -- HALT
+                        state <= S_HALT;
+                    else -- ALU Ops (0x01..0x3F)
+                        state <= S_EXEC_ALU;
+                    end if;
 
-                    when S_EXEC_BRANCH =>
-                        -- Default is to increment PC
-                        pc <= pc + 1; 
-                        
-                        case op_code is
-                            when x"50" => -- BEQ
-                                if regs(r_srcA) = regs(r_dest) then
-                                    pc <= pc + 1 + unsigned(imm_s);
-                                end if;
-                            when x"51" => -- BNE
-                                if regs(r_srcA) /= regs(r_dest) then
-                                    pc <= pc + 1 + unsigned(imm_s);
-                                end if;
-                            when x"52" => -- J
+                when S_EXEC_ALU =>
+                    valA := signed(regs(r_srcA));
+                    valB := signed(regs(r_srcB));
+                    shamt := to_integer(unsigned(imm16(3 downto 0)));
+                    
+                    -- ALU Operation (use variable for immediate result)
+                    case op_code is
+                        when x"01" => alu_result := imm16; -- LDI
+                        when x"02" => alu_result := regs(r_srcA); -- MV
+                        when x"10" => alu_result := std_logic_vector(valA + valB); -- ADD
+                        when x"11" => alu_result := std_logic_vector(valA - valB); -- SUB
+                        when x"12" => alu_result := std_logic_vector(valA + imm_s); -- ADDI
+                        when x"20" => alu_result := regs(r_srcA) and regs(r_srcB); -- AND
+                        when x"21" => alu_result := regs(r_srcA) or regs(r_srcB);  -- OR
+                        when x"22" => alu_result := regs(r_srcA) xor regs(r_srcB); -- XOR
+                        when x"23" => alu_result := regs(r_srcA) and imm16; -- ANDI
+                        when x"24" => alu_result := regs(r_srcA) or imm16;  -- ORI
+                        when x"25" => alu_result := regs(r_srcA) xor imm16; -- XORI
+                        when x"30" => alu_result := std_logic_vector(shift_left(unsigned(regs(r_srcA)), shamt)); -- SHL
+                        when x"31" => alu_result := std_logic_vector(shift_right(unsigned(regs(r_srcA)), shamt)); -- SHR
+                        when x"32" => alu_result := std_logic_vector(shift_right(signed(regs(r_srcA)), shamt)); -- SAR
+                        when others => alu_result := (others => '0');
+                    end case;
+                    
+                    -- Writeback (R0 is constant zero) - variable has correct value immediately
+                    if r_dest /= 0 then
+                        regs(r_dest) <= alu_result;
+                    end if;
+                    
+                    pc <= pc + 1;
+                    state <= S_FETCH;
+
+                when S_EXEC_BRANCH =>
+                    -- Default is to increment PC
+                    pc <= pc + 1; 
+                    
+                    case op_code is
+                        when x"50" => -- BEQ
+                            if regs(r_srcA) = regs(r_dest) then
                                 pc <= pc + 1 + unsigned(imm_s);
-                            when others => null;
-                        end case;
-                        state <= S_FETCH;
+                            end if;
+                        when x"51" => -- BNE
+                            if regs(r_srcA) /= regs(r_dest) then
+                                pc <= pc + 1 + unsigned(imm_s);
+                            end if;
+                        when x"52" => -- J
+                            pc <= pc + 1 + unsigned(imm_s);
+                        when others => null;
+                    end case;
+                    state <= S_FETCH;
 
-                    when S_MEM_ADDR =>
-                        -- Calculate Effective Address
-                        case op_code is
-                            when x"40" | x"41" => -- LD, ST (Absolute)
-                                eff_addr <= imm_z;
-                                mem_addr <= imm_z; -- Drive address one cycle before WE/RE
-                            when x"42" | x"43" => -- LDX, STX (Base + Offset)
-                                eff_addr <= unsigned(signed(regs(r_srcA)) + imm_s);
-                                mem_addr <= unsigned(signed(regs(r_srcA)) + imm_s);
-                            when others =>
-                                eff_addr <= (others => '0');
-                                mem_addr <= (others => '0');
-                        end case;
+                when S_MEM_ADDR =>
+                    -- Calculate Effective Address
+                    case op_code is
+                        when x"40" | x"41" => -- LD, ST (Absolute)
+                            eff_addr <= imm_z;
+                            mem_addr <= imm_z; -- Drive address one cycle before WE/RE
+                        when x"42" | x"43" => -- LDX, STX (Base + Offset)
+                            eff_addr <= unsigned(signed(regs(r_srcA)) + imm_s);
+                            mem_addr <= unsigned(signed(regs(r_srcA)) + imm_s);
+                        when others =>
+                            eff_addr <= (others => '0');
+                            mem_addr <= (others => '0');
+                    end case;
 
-                        -- Preload store data so it's stable when WE pulses
-                        if op_code(0) = '1' then
-                            mem_wdata <= regs(r_dest);
-                        end if;
+                    -- Preload store data so it's stable when WE pulses
+                    if op_code(0) = '1' then
+                        mem_wdata <= regs(r_dest);
+                    end if;
 
-                        if op_code(0) = '0' then -- Even opcodes are Loads (40, 42)
-                            state <= S_MEM_READ;
-                        else -- Odd opcodes are Stores (41, 43)
-                            state <= S_MEM_WRITE;
-                        end if;
+                    if op_code(0) = '0' then -- Even opcodes are Loads (40, 42)
+                        state <= S_MEM_READ;
+                    else -- Odd opcodes are Stores (41, 43)
+                        state <= S_MEM_WRITE;
+                    end if;
 
-                    when S_MEM_READ =>
-                        mem_re   <= '1';
-                        state    <= S_MEM_READ_WAIT;
+                when S_MEM_READ =>
+                    mem_re   <= '1';
+                    state    <= S_MEM_READ_WAIT;
 
-                    when S_MEM_READ_WAIT =>
-                        if r_dest /= 0 then
-                            regs(r_dest) <= mem_rdata;
-                        end if;
-                        pc <= pc + 1;
-                        state <= S_FETCH;
+                when S_MEM_READ_WAIT =>
+                    if r_dest /= 0 then
+                        regs(r_dest) <= mem_rdata;
+                    end if;
+                    pc <= pc + 1;
+                    state <= S_FETCH;
 
-                    when S_MEM_WRITE =>
-                        mem_we    <= '1';
-                        pc <= pc + 1;
-                        state <= S_FETCH;
+                when S_MEM_WRITE =>
+                    mem_we    <= '1';
+                    pc <= pc + 1;
+                    state <= S_FETCH;
 
-                    when S_HALT =>
-                        state <= S_HALT; -- Spin forever
-                        
-                    when others =>
-                        state <= S_FETCH;
-                end case;
-            end if;
+                when S_HALT =>
+                    state <= S_HALT; -- Spin forever
+                    
+                when others =>
+                    state <= S_FETCH;
+            end case;
         end if;
     end process;
 

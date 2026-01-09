@@ -80,10 +80,12 @@ begin
     -- ================================================================
     -- M9K RAM process - synchronous read/write, 1-cycle read latency
     -- ================================================================
-    ram_proc: process(clk)
+    ram_proc: process(clk, rst)
         variable ram_addr : integer range 0 to 4095;
     begin
-        if rising_edge(clk) then
+        if rst = '1' then
+            ram_dout <= (others => '0');
+        elsif rising_edge(clk) then
             -- Calculate RAM address (offset from 0x2000)
             if to_integer(mem_addr) >= 16#2000# and to_integer(mem_addr) <= 16#2FFF# then
                 ram_addr := to_integer(mem_addr) - 16#2000#;
@@ -106,17 +108,15 @@ begin
     -- ================================================================
     -- MMIO register write/reset
     -- ================================================================
-    mmio_proc: process(clk)
+    mmio_proc: process(clk, rst)
         variable addr_int : integer;
     begin
-        if rising_edge(clk) then
-            if rst = '1' then
-                reg_leds <= (others => '0');
-            else
-                addr_int := to_integer(mem_addr);
-                if mem_we = '1' and addr_int = 16#FFFE# then
-                    reg_leds <= mem_wdata(9 downto 0);
-                end if;
+        if rst = '1' then
+            reg_leds <= (others => '0');
+        elsif rising_edge(clk) then
+            addr_int := to_integer(mem_addr);
+            if mem_we = '1' and addr_int = 16#FFFE# then
+                reg_leds <= mem_wdata(9 downto 0);
             end if;
         end if;
     end process mmio_proc;

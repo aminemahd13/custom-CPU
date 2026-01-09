@@ -310,12 +310,12 @@ architecture rtl of instr_rom is
     attribute ramstyle : string;
     attribute ramstyle of rom : signal is "M9K";
 begin
-    process(clk)
+    process(clk, rst)
     begin
-        if rising_edge(clk) then
-            if rst = '1' then
-                data_out <= rom(0);
-            elsif to_integer(addr) < 256 then
+        if rst = '1' then
+            data_out <= rom(0);
+        elsif rising_edge(clk) then
+            if to_integer(addr) < 256 then
                 data_out <= rom(to_integer(addr));
             else
                 data_out <= (others => '0');
