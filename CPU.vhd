@@ -28,7 +28,6 @@ architecture rtl of CPU is
 
     -- =========================================================
     -- Component Declarations
-    -- (Must match the entity names in the other files)
     -- =========================================================
 
     component instr_rom is
@@ -93,33 +92,36 @@ architecture rtl of CPU is
     signal bus_we        : std_logic;
     signal bus_re        : std_logic;
     
-    -- 1 Hz clock divider from 50 MHz input
+    -- clock divider 50Mhz -> 100Hz
     signal slow_clk      : std_logic := '0';
-    signal clk_div_cnt   : unsigned(25 downto 0) := (others => '0'); -- counts 0..24,999,999
+    signal clk_div_cnt   : unsigned(18 downto 0) := (others => '0');
 
 begin
 
     -- 1. Reset Logic
     -- KEY(0) is active LOW on DE10-Lite. Synchronize to CLOCK_50
     -- to avoid metastability and ensure clean release.
-    process(CLOCK_50)
+    process(CLOCK_50, KEY(0))
     begin
-        if rising_edge(CLOCK_50) then
-            rst_sync1 <= not KEY(0);
+        if KEY(0) = '0' then
+            rst_sync1 <= '1';
+            rst_sync2 <= '1';
+        elsif rising_edge(CLOCK_50) then
+            rst_sync1 <= '0';
             rst_sync2 <= rst_sync1;
         end if;
     end process;
 
     sys_rst <= rst_sync2;
 
-    -- 2. Clock divider: 50 MHz -> 1 Hz (toggle every 25,000,000 cycles)
+    -- 2. Clock divider: 50 MHz -> 1 Hz
     process(CLOCK_50)
     begin
         if rising_edge(CLOCK_50) then
             if sys_rst = '1' then
                 clk_div_cnt <= (others => '0');
                 slow_clk <= '0';
-            elsif clk_div_cnt = to_unsigned(24_999_999, clk_div_cnt'length) then
+            elsif clk_div_cnt = to_unsigned(209_999, clk_div_cnt'length) then
                 clk_div_cnt <= (others => '0');
                 slow_clk <= not slow_clk;
             else
