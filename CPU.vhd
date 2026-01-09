@@ -92,6 +92,10 @@ architecture rtl of CPU is
     signal bus_rdata     : std_logic_vector(15 downto 0);
     signal bus_we        : std_logic;
     signal bus_re        : std_logic;
+    
+    -- 1 Hz clock divider from 50 MHz input
+    signal slow_clk      : std_logic := '0';
+    signal clk_div_cnt   : unsigned(25 downto 0) := (others => '0'); -- counts 0..24,999,999
 
 begin
 
@@ -108,10 +112,26 @@ begin
 
     sys_rst <= rst_sync2;
 
+    -- 2. Clock divider: 50 MHz -> 1 Hz (toggle every 25,000,000 cycles)
+    process(CLOCK_50)
+    begin
+        if rising_edge(CLOCK_50) then
+            if sys_rst = '1' then
+                clk_div_cnt <= (others => '0');
+                slow_clk <= '0';
+            elsif clk_div_cnt = to_unsigned(24_999_999, clk_div_cnt'length) then
+                clk_div_cnt <= (others => '0');
+                slow_clk <= not slow_clk;
+            else
+                clk_div_cnt <= clk_div_cnt + 1;
+            end if;
+        end if;
+    end process;
+
     -- 3. Instantiate Instruction ROM (Holds the program)
     u_rom: instr_rom
     port map (
-        clk      => CLOCK_50,
+        clk      => slow_clk,
         rst      => sys_rst,
         addr     => cpu_pc,
         data_out => cpu_instr
@@ -120,7 +140,7 @@ begin
     -- 4. Instantiate CPU Core (The Processor)
     u_core: cpu_core
     port map (
-        clk       => CLOCK_50,
+        clk       => slow_clk,
         rst       => sys_rst,
         pc_out    => cpu_pc,
         instr_in  => cpu_instr,
@@ -134,7 +154,7 @@ begin
     -- 5. Instantiate Memory Map (RAM + IO Controller)
     u_mem: mem_map
     port map (
-        clk       => CLOCK_50,
+        clk       => slow_clk,
         rst       => sys_rst,
         mem_addr  => bus_addr,
         mem_wdata => bus_wdata,

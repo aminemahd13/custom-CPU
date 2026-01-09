@@ -14,9 +14,9 @@ end entity instr_rom;
 architecture rtl of instr_rom is
     type rom_type is array (0 to 255) of std_logic_vector(31 downto 0);
     
-    -- ================================================================
+    --
     -- COMPREHENSIVE CPU TEST PROGRAM WITH VISUAL FEEDBACK
-    -- ================================================================
+    --
     -- Display codes on 7-segment (hex):
     --   0x001-0x00F = Test number currently running
     --   0x1XX       = Test XX PASSED (shows briefly, then continues)
