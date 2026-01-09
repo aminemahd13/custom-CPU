@@ -284,21 +284,17 @@ architecture rtl of instr_rom is
         -- Blink loop
         175 => x"4110FFFE",  -- ST R1, [0xFFFE]    ; Show 3FF
         -- Delay ON
-        176 => x"01B00000",  -- LDI R11, 0         
-        177 => x"01C0FFF6",  -- LDI R12, 0xFFF6 (inner delay counter start)
-        178 => x"12CC0001",  -- ADDI R12, R12, 1   ; inner++
-        179 => x"51C0FFFE",  -- BNE R12, R0, -2    ; inner loop (~100 iterations)
-        180 => x"12BB0001",  -- ADDI R11, R11, 1   ; outer++
-        181 => x"51BEFFFB",  -- BNE R11, R14, -5   ; outer loop (8x)
+       
+        177 => x"01C0FFF0",  -- LDI R12, 0xFF00 
+        178 => x"12CC0001",  -- ADDI R12, R12, 1  ; 
+        179 => x"51C0FFFE",  -- BNE R12, R0, -2    ; 
+
         
-        182 => x"4120FFFE",  -- ST R2, [0xFFFE]    ; Show 000
-        -- Delay OFF
-        183 => x"01B00000",  -- LDI R11, 0         
-        184 => x"01C0FFF6",  -- LDI R12, 0xFFF6 (inner delay counter start)
-        185 => x"12CC0001",  -- ADDI R12, R12, 1   
-        186 => x"51C0FFFE",  -- BNE R12, R0, -2     ; inner loop (~100 iterations)
-        187 => x"12BB0001",  -- ADDI R11, R11, 1   
-        188 => x"51BEFFFB",  -- BNE R11, R14, -5   
+        182 => x"4120FFFE",  -- ST R2, [0xFFFE]    ; 
+        -- Delay OFF       
+        184 => x"01C0FFF0",  -- LDI R12, 0xFF00    ;
+        185 => x"12CC0001",  -- ADDI R12, R12, 1   ;
+        186 => x"51C0FFFE",  -- BNE R12, R0, -2     ;
 
         189 => x"5200FFF1",  -- J -15              ; back to 175
 
