@@ -82,7 +82,7 @@ begin
             -- Default strobes, can be overridden by states
             mem_we <= '0';
             mem_re <= '0';
-            
+
             case state is
                 when S_RESET =>
                     -- Wait one cycle for ROM to output instruction at PC=0
@@ -118,7 +118,7 @@ begin
                     valA := signed(regs(r_srcA));
                     valB := signed(regs(r_srcB));
                     shamt := to_integer(unsigned(imm16(3 downto 0)));
-                    
+
                     -- ALU Operation (use variable for immediate result)
                     case op_code is
                         when x"01" => alu_result := imm16; -- LDI
@@ -137,19 +137,19 @@ begin
                         when x"32" => alu_result := std_logic_vector(shift_right(signed(regs(r_srcA)), shamt)); -- SAR
                         when others => alu_result := (others => '0');
                     end case;
-                    
+
                     -- Writeback (R0 is constant zero) - variable has correct value immediately
                     if r_dest /= 0 then
                         regs(r_dest) <= alu_result;
                     end if;
-                    
+
                     pc <= pc + 1;
                     state <= S_FETCH;
 
                 when S_EXEC_BRANCH =>
                     -- Default is to increment PC
-                    pc <= pc + 1; 
-                    
+                    pc <= pc + 1;
+
                     case op_code is
                         when x"50" => -- BEQ
                             if regs(r_srcA) = regs(r_dest) then
@@ -208,7 +208,7 @@ begin
 
                 when S_HALT =>
                     state <= S_HALT; -- Spin forever
-                    
+
                 when others =>
                     state <= S_FETCH;
             end case;

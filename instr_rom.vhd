@@ -12,297 +12,377 @@ entity instr_rom is
 end entity instr_rom;
 
 architecture rtl of instr_rom is
-    type rom_type is array (0 to 255) of std_logic_vector(31 downto 0);
-    
-    --
-    -- COMPREHENSIVE CPU TEST PROGRAM WITH VISUAL FEEDBACK
-    --
-    -- Display codes on 7-segment (hex):
-    --   0x001-0x00F = Test number currently running
-    --   0x1XX       = Test XX PASSED (shows briefly, then continues)
-    --   0x2XX       = Test XX FAILED (HALTS here!)
-    --   0x3FF       = ALL TESTS PASSED! Victory blink!
-    --
-    -- Tests (15 total):
-    --   01: LDI - Load Immediate
-    --   02: MV  - Register Move  
-    --   03: ADD - Register Addition
-    --   04: SUB - Register Subtraction
-    --   05: ADDI - Add Immediate
-    --   06: AND - Bitwise AND
-    --   07: OR  - Bitwise OR
-    --   08: XOR - Bitwise XOR
-    --   09: ANDI - AND Immediate
-    --   0A: SHL - Shift Left
-    --   0B: SHR - Shift Right Logical
-    --   0C: R0 Hardwired Zero
-    --   0D: ST/LD - Memory Store/Load  
-    --   0E: LDX/STX - Base+Offset Memory
-    --   0F: Negative ADDI test
-    -- ================================================================
-    
+    constant ROM_WORDS : integer := 512;
+    type rom_type is array (0 to ROM_WORDS - 1) of std_logic_vector(31 downto 0);
+
+    -- Diagnostic program assembled from `prog.asm` via `assembler.py`.
+    -- Key MMIO:
+    --   0xFFFD: TFT framebuffer enable (bit0)
+    --   0xFFFC: TFT OSD status: [15:8]=test_id, [1:0]=state (00 RUN, 01 PASS, 10 FAIL)
     constant ROM_CONTENT : rom_type := (
-        -- ============================================================
-        -- TEST 01: LDI (Load Immediate)
-        -- ============================================================
-        0  => x"01F00001",  -- LDI R15, 0x0001     ; Test 01
-        1  => x"41F0FFFE",  -- ST  R15, [0xFFFE]   ; Display "001"
-        2  => x"011000AB",  -- LDI R1, 0x00AB      ; R1 = 0xAB
-        3  => x"012000AB",  -- LDI R2, 0x00AB      ; Expected
-        4  => x"50120004",  -- BEQ R1, R2, +4      ; Pass if equal
-        5  => x"01F00201",  -- LDI R15, 0x0201     ; FAIL
-        6  => x"41F0FFFE",  -- ST  R15, [0xFFFE]   
-        7  => x"FF000000",  -- HALT
-        8  => x"01F00101",  -- LDI R15, 0x0101     ; PASS
-        9  => x"41F0FFFE",  -- ST  R15, [0xFFFE]   
-
-        -- ============================================================
-        -- TEST 02: MV (Register Move)
-        -- ============================================================
-        10 => x"01F00002",  -- LDI R15, 0x0002     
-        11 => x"41F0FFFE",  -- ST  R15, [0xFFFE]   
-        12 => x"011000CD",  -- LDI R1, 0x00CD      
-        13 => x"02310000",  -- MV  R3, R1          ; R3 = R1
-        14 => x"50310004",  -- BEQ R3, R1, +4      
-        15 => x"01F00202",  -- FAIL
-        16 => x"41F0FFFE",  
-        17 => x"FF000000",  
-        18 => x"01F00102",  -- PASS
-        19 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 03: ADD (5 + 7 = 12)
-        -- ============================================================
-        20 => x"01F00003",  
-        21 => x"41F0FFFE",  
-        22 => x"01100005",  -- LDI R1, 5           
-        23 => x"01200007",  -- LDI R2, 7           
-        24 => x"10310002",  -- ADD R3, R1, R2      ; R3 = 12
-        25 => x"0140000C",  -- LDI R4, 12          
-        26 => x"50340004",  -- BEQ R3, R4, +4      
-        27 => x"01F00203",  -- FAIL
-        28 => x"41F0FFFE",  
-        29 => x"FF000000",  
-        30 => x"01F00103",  -- PASS
-        31 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 04: SUB (20 - 8 = 12)
-        -- ============================================================
-        32 => x"01F00004",  
-        33 => x"41F0FFFE",  
-        34 => x"01100014",  -- LDI R1, 20          
-        35 => x"01200008",  -- LDI R2, 8           
-        36 => x"11310002",  -- SUB R3, R1, R2      ; R3 = 12
-        37 => x"0140000C",  -- LDI R4, 12          
-        38 => x"50340004",  -- BEQ R3, R4, +4      
-        39 => x"01F00204",  -- FAIL
-        40 => x"41F0FFFE",  
-        41 => x"FF000000",  
-        42 => x"01F00104",  -- PASS
-        43 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 05: ADDI (100 + 55 = 155)
-        -- ============================================================
-        44 => x"01F00005",  
-        45 => x"41F0FFFE",  
-        46 => x"01100064",  -- LDI R1, 100         
-        47 => x"12210037",  -- ADDI R2, R1, 55     ; R2 = 155
-        48 => x"0130009B",  -- LDI R3, 155         
-        49 => x"50230004",  -- BEQ R2, R3, +4      
-        50 => x"01F00205",  -- FAIL
-        51 => x"41F0FFFE",  
-        52 => x"FF000000",  
-        53 => x"01F00105",  -- PASS
-        54 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 06: AND (0xFF & 0x0F = 0x0F)
-        -- ============================================================
-        55 => x"01F00006",  
-        56 => x"41F0FFFE",  
-        57 => x"011000FF",  -- LDI R1, 0xFF        
-        58 => x"0120000F",  -- LDI R2, 0x0F        
-        59 => x"20310002",  -- AND R3, R1, R2      
-        60 => x"0140000F",  -- LDI R4, 0x0F        
-        61 => x"50340004",  -- BEQ R3, R4, +4      
-        62 => x"01F00206",  -- FAIL
-        63 => x"41F0FFFE",  
-        64 => x"FF000000",  
-        65 => x"01F00106",  -- PASS
-        66 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 07: OR (0xF0 | 0x0F = 0xFF)
-        -- ============================================================
-        67 => x"01F00007",  
-        68 => x"41F0FFFE",  
-        69 => x"011000F0",  -- LDI R1, 0xF0        
-        70 => x"0120000F",  -- LDI R2, 0x0F        
-        71 => x"21310002",  -- OR  R3, R1, R2      
-        72 => x"014000FF",  -- LDI R4, 0xFF        
-        73 => x"50340004",  -- BEQ R3, R4, +4      
-        74 => x"01F00207",  -- FAIL
-        75 => x"41F0FFFE",  
-        76 => x"FF000000",  
-        77 => x"01F00107",  -- PASS
-        78 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 08: XOR (0xFF ^ 0xAA = 0x55)
-        -- ============================================================
-        79 => x"01F00008",  
-        80 => x"41F0FFFE",  
-        81 => x"011000FF",  -- LDI R1, 0xFF        
-        82 => x"012000AA",  -- LDI R2, 0xAA        
-        83 => x"22310002",  -- XOR R3, R1, R2      
-        84 => x"01400055",  -- LDI R4, 0x55        
-        85 => x"50340004",  -- BEQ R3, R4, +4      
-        86 => x"01F00208",  -- FAIL
-        87 => x"41F0FFFE",  
-        88 => x"FF000000",  
-        89 => x"01F00108",  -- PASS
-        90 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 09: ANDI (0xABCD & 0x00FF = 0x00CD)
-        -- ============================================================
-        91 => x"01F00009",  
-        92 => x"41F0FFFE",  
-        93 => x"0110ABCD",  -- LDI R1, 0xABCD      
-        94 => x"233100FF",  -- ANDI R3, R1, 0x00FF (fixed: was 231100FF)
-        95 => x"014000CD",  -- LDI R4, 0x00CD      
-        96 => x"50340004",  -- BEQ R3, R4, +4      
-        97 => x"01F00209",  -- FAIL
-        98 => x"41F0FFFE",  
-        99 => x"FF000000",  
-        100 => x"01F00109",  -- PASS
-        101 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 0A: SHL (1 << 4 = 16)
-        -- ============================================================
-        102 => x"01F0000A",  
-        103 => x"41F0FFFE",  
-        104 => x"01100001",  -- LDI R1, 1          
-        105 => x"30210004",  -- SHL R2, R1, 4      
-        106 => x"01300010",  -- LDI R3, 16         
-        107 => x"50230004",  -- BEQ R2, R3, +4     
-        108 => x"01F0020A",  -- FAIL
-        109 => x"41F0FFFE",  
-        110 => x"FF000000",  
-        111 => x"01F0010A",  -- PASS
-        112 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 0B: SHR (128 >> 3 = 16)
-        -- ============================================================
-        113 => x"01F0000B",  
-        114 => x"41F0FFFE",  
-        115 => x"01100080",  -- LDI R1, 128        
-        116 => x"31210003",  -- SHR R2, R1, 3      
-        117 => x"01300010",  -- LDI R3, 16         
-        118 => x"50230004",  -- BEQ R2, R3, +4     
-        119 => x"01F0020B",  -- FAIL
-        120 => x"41F0FFFE",  
-        121 => x"FF000000",  
-        122 => x"01F0010B",  -- PASS
-        123 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 0C: R0 Hardwired Zero (write should be ignored)
-        -- ============================================================
-        124 => x"01F0000C",  
-        125 => x"41F0FFFE",  
-        126 => x"010000FF",  -- LDI R0, 0xFF (should be ignored!)
-        127 => x"01100000",  -- LDI R1, 0          
-        128 => x"50010004",  -- BEQ R0, R1, +4     ; R0 should still be 0
-        129 => x"01F0020C",  -- FAIL
-        130 => x"41F0FFFE",  
-        131 => x"FF000000",  
-        132 => x"01F0010C",  -- PASS
-        133 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 0D: ST/LD Memory (store 0x1234, load back)
-        -- ============================================================
-        134 => x"01F0000D",  
-        135 => x"41F0FFFE",  
-        136 => x"01101234",  -- LDI R1, 0x1234     
-        137 => x"41102000",  -- ST  R1, [0x2000]   
-        138 => x"01100000",  -- LDI R1, 0          ; Clear R1
-        139 => x"40202000",  -- LD  R2, [0x2000]   ; Load back into R2 (fixed: was 40212000)
-        140 => x"01301234",  -- LDI R3, 0x1234     
-        141 => x"50230004",  -- BEQ R2, R3, +4     
-        142 => x"01F0020D",  -- FAIL
-        143 => x"41F0FFFE",  
-        144 => x"FF000000",  
-        145 => x"01F0010D",  -- PASS
-        146 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 0E: LDX/STX Base+Offset (R5=0x2000, [R5+4]=0xBEEF)
-        -- ============================================================
-        147 => x"01F0000E",  
-        148 => x"41F0FFFE",  
-        149 => x"01502000",  -- LDI R5, 0x2000     ; base
-        150 => x"0110BEEF",  -- LDI R1, 0xBEEF     
-        151 => x"43150004",  -- STX R1, [R5+4]     ; store at 0x2004
-        152 => x"01100000",  -- LDI R1, 0          
-        153 => x"42250004",  -- LDX R2, [R5+4]     ; load from 0x2004
-        154 => x"0130BEEF",  -- LDI R3, 0xBEEF     
-        155 => x"50230004",  -- BEQ R2, R3, +4     
-        156 => x"01F0020E",  -- FAIL
-        157 => x"41F0FFFE",  
-        158 => x"FF000000",  
-        159 => x"01F0010E",  -- PASS
-        160 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- TEST 0F: ADDI with negative (100 + (-10) = 90)
-        -- ============================================================
-        161 => x"01F0000F",  
-        162 => x"41F0FFFE",  
-        163 => x"01100064",  -- LDI R1, 100        
-        164 => x"1221FFF6",  -- ADDI R2, R1, -10   ; 0xFFF6 = -10
-        165 => x"0130005A",  -- LDI R3, 90         
-        166 => x"50230004",  -- BEQ R2, R3, +4     
-        167 => x"01F0020F",  -- FAIL
-        168 => x"41F0FFFE",  
-        169 => x"FF000000",  
-        170 => x"01F0010F",  -- PASS
-        171 => x"41F0FFFE",  
-
-        -- ============================================================
-        -- ALL TESTS PASSED! Victory display: blink 3FF / 000
-        -- ============================================================
-        172 => x"01E00008",  -- LDI R14, 8         ; blink speed
-        173 => x"011003FF",  -- LDI R1, 0x3FF      ; ON pattern (all segs)
-        174 => x"01200000",  -- LDI R2, 0x000      ; OFF pattern
-
-        -- Blink loop
-        175 => x"4110FFFE",  -- ST R1, [0xFFFE]    ; Show 3FF
-        -- Delay ON
-       
-        177 => x"01C0FFF0",  -- LDI R12, 0xFF00 
-        178 => x"12CC0001",  -- ADDI R12, R12, 1  ; 
-        179 => x"51C0FFFE",  -- BNE R12, R0, -2    ; 
-
-        
-        182 => x"4120FFFE",  -- ST R2, [0xFFFE]    ; 
-        -- Delay OFF       
-        184 => x"01C0FFF0",  -- LDI R12, 0xFF00    ;
-        185 => x"12CC0001",  -- ADDI R12, R12, 1   ;
-        186 => x"51C0FFFE",  -- BNE R12, R0, -2     ;
-
-        189 => x"5200FFF1",  -- J -15              ; back to 175
-
+        0   => x"01100001", -- LDI R1, 1
+        1   => x"4110FFFD", -- ST  R1, [0xFFFD]
+        2   => x"01F00000", -- LDI R15, 0x0000
+        3   => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        4   => x"01503000", -- LDI R5, 0x3000
+        5   => x"01605000", -- LDI R6, 0x5000
+        6   => x"01700000", -- LDI R7, 0
+        7   => x"43750000", -- STX R7, [R5 + 0]
+        8   => x"12550001", -- ADDI R5, R5, 1
+        9   => x"1266FFFF", -- ADDI R6, R6, -1
+        10  => x"5160FFFC", -- BNE  R6, R0, CLR_FB
+        11  => x"0170F800", -- LDI R7, 0xF800
+        12  => x"41703000", -- ST  R7, [0x3000]  -- top-left (red)
+        13  => x"017007E0", -- LDI R7, 0x07E0
+        14  => x"4170307F", -- ST  R7, [0x307F]  -- top-right (green)
+        15  => x"0170001F", -- LDI R7, 0x001F
+        16  => x"41707F80", -- ST  R7, [0x7F80]  -- bottom-left (blue)
+        17  => x"0170FFFF", -- LDI R7, 0xFFFF
+        18  => x"41707FFF", -- ST  R7, [0x7FFF]  -- bottom-right (white)
+        19  => x"01503A00", -- LDI R5, 0x3A00
+        20  => x"01600080", -- LDI R6, 128
+        21  => x"0170FFFF", -- LDI R7, 0xFFFF
+        22  => x"43750000", -- STX R7, [R5 + 0]
+        23  => x"12550001", -- ADDI R5, R5, 1
+        24  => x"1266FFFF", -- ADDI R6, R6, -1
+        25  => x"5160FFFC", -- BNE  R6, R0, LINE20
+        26  => x"01F00100", -- LDI R15, 0x0100
+        27  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        28  => x"011000AB", -- LDI R1, 0x00AB
+        29  => x"012000AB", -- LDI R2, 0x00AB
+        30  => x"50120003", -- BEQ R1, R2, PASS_01
+        31  => x"01F00102", -- LDI R15, 0x0102
+        32  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        33  => x"FF000000", -- HALT
+        34  => x"01F00101", -- LDI R15, 0x0101
+        35  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        36  => x"01B00008", -- LDI R11, 8
+        37  => x"01C00000", -- LDI R12, 0
+        38  => x"12CC0001", -- ADDI R12, R12, 1
+        39  => x"51C0FFFE", -- BNE  R12, R0, D01_I
+        40  => x"12BBFFFF", -- ADDI R11, R11, -1
+        41  => x"51B0FFFB", -- BNE  R11, R0, D01_O
+        42  => x"01F00200", -- LDI R15, 0x0200
+        43  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        44  => x"011000CD", -- LDI R1, 0x00CD
+        45  => x"02310000", -- MV  R3, R1
+        46  => x"50310003", -- BEQ R3, R1, PASS_02
+        47  => x"01F00202", -- LDI R15, 0x0202
+        48  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        49  => x"FF000000", -- HALT
+        50  => x"01F00201", -- LDI R15, 0x0201
+        51  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        52  => x"01B00008", -- LDI R11, 8
+        53  => x"01C00000", -- LDI R12, 0
+        54  => x"12CC0001", -- ADDI R12, R12, 1
+        55  => x"51C0FFFE", -- BNE  R12, R0, D02_I
+        56  => x"12BBFFFF", -- ADDI R11, R11, -1
+        57  => x"51B0FFFB", -- BNE  R11, R0, D02_O
+        58  => x"01F00300", -- LDI R15, 0x0300
+        59  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        60  => x"01100005", -- LDI R1, 5
+        61  => x"01200007", -- LDI R2, 7
+        62  => x"10310002", -- ADD R3, R1, R2
+        63  => x"0140000C", -- LDI R4, 12
+        64  => x"50340003", -- BEQ R3, R4, PASS_03
+        65  => x"01F00302", -- LDI R15, 0x0302
+        66  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        67  => x"FF000000", -- HALT
+        68  => x"01F00301", -- LDI R15, 0x0301
+        69  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        70  => x"01B00008", -- LDI R11, 8
+        71  => x"01C00000", -- LDI R12, 0
+        72  => x"12CC0001", -- ADDI R12, R12, 1
+        73  => x"51C0FFFE", -- BNE  R12, R0, D03_I
+        74  => x"12BBFFFF", -- ADDI R11, R11, -1
+        75  => x"51B0FFFB", -- BNE  R11, R0, D03_O
+        76  => x"01F00400", -- LDI R15, 0x0400
+        77  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        78  => x"01100014", -- LDI R1, 20
+        79  => x"01200008", -- LDI R2, 8
+        80  => x"11310002", -- SUB R3, R1, R2
+        81  => x"0140000C", -- LDI R4, 12
+        82  => x"50340003", -- BEQ R3, R4, PASS_04
+        83  => x"01F00402", -- LDI R15, 0x0402
+        84  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        85  => x"FF000000", -- HALT
+        86  => x"01F00401", -- LDI R15, 0x0401
+        87  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        88  => x"01B00008", -- LDI R11, 8
+        89  => x"01C00000", -- LDI R12, 0
+        90  => x"12CC0001", -- ADDI R12, R12, 1
+        91  => x"51C0FFFE", -- BNE  R12, R0, D04_I
+        92  => x"12BBFFFF", -- ADDI R11, R11, -1
+        93  => x"51B0FFFB", -- BNE  R11, R0, D04_O
+        94  => x"01F00500", -- LDI R15, 0x0500
+        95  => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        96  => x"01100064", -- LDI R1, 100
+        97  => x"12210037", -- ADDI R2, R1, 55
+        98  => x"0130009B", -- LDI R3, 155
+        99  => x"50230003", -- BEQ R2, R3, PASS_05
+        100 => x"01F00502", -- LDI R15, 0x0502
+        101 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        102 => x"FF000000", -- HALT
+        103 => x"01F00501", -- LDI R15, 0x0501
+        104 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        105 => x"01B00008", -- LDI R11, 8
+        106 => x"01C00000", -- LDI R12, 0
+        107 => x"12CC0001", -- ADDI R12, R12, 1
+        108 => x"51C0FFFE", -- BNE  R12, R0, D05_I
+        109 => x"12BBFFFF", -- ADDI R11, R11, -1
+        110 => x"51B0FFFB", -- BNE  R11, R0, D05_O
+        111 => x"01F00600", -- LDI R15, 0x0600
+        112 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        113 => x"01100064", -- LDI R1, 100
+        114 => x"1221FFF6", -- ADDI R2, R1, -10
+        115 => x"0130005A", -- LDI R3, 90
+        116 => x"50230003", -- BEQ R2, R3, PASS_06
+        117 => x"01F00602", -- LDI R15, 0x0602
+        118 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        119 => x"FF000000", -- HALT
+        120 => x"01F00601", -- LDI R15, 0x0601
+        121 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        122 => x"01B00008", -- LDI R11, 8
+        123 => x"01C00000", -- LDI R12, 0
+        124 => x"12CC0001", -- ADDI R12, R12, 1
+        125 => x"51C0FFFE", -- BNE  R12, R0, D06_I
+        126 => x"12BBFFFF", -- ADDI R11, R11, -1
+        127 => x"51B0FFFB", -- BNE  R11, R0, D06_O
+        128 => x"01F00700", -- LDI R15, 0x0700
+        129 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        130 => x"011000FF", -- LDI R1, 0x00FF
+        131 => x"0120000F", -- LDI R2, 0x000F
+        132 => x"20310002", -- AND R3, R1, R2
+        133 => x"0140000F", -- LDI R4, 0x000F
+        134 => x"50340003", -- BEQ R3, R4, PASS_07
+        135 => x"01F00702", -- LDI R15, 0x0702
+        136 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        137 => x"FF000000", -- HALT
+        138 => x"01F00701", -- LDI R15, 0x0701
+        139 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        140 => x"01B00008", -- LDI R11, 8
+        141 => x"01C00000", -- LDI R12, 0
+        142 => x"12CC0001", -- ADDI R12, R12, 1
+        143 => x"51C0FFFE", -- BNE  R12, R0, D07_I
+        144 => x"12BBFFFF", -- ADDI R11, R11, -1
+        145 => x"51B0FFFB", -- BNE  R11, R0, D07_O
+        146 => x"01F00800", -- LDI R15, 0x0800
+        147 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        148 => x"011000F0", -- LDI R1, 0x00F0
+        149 => x"0120000F", -- LDI R2, 0x000F
+        150 => x"21310002", -- OR  R3, R1, R2
+        151 => x"014000FF", -- LDI R4, 0x00FF
+        152 => x"50340003", -- BEQ R3, R4, PASS_08
+        153 => x"01F00802", -- LDI R15, 0x0802
+        154 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        155 => x"FF000000", -- HALT
+        156 => x"01F00801", -- LDI R15, 0x0801
+        157 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        158 => x"01B00008", -- LDI R11, 8
+        159 => x"01C00000", -- LDI R12, 0
+        160 => x"12CC0001", -- ADDI R12, R12, 1
+        161 => x"51C0FFFE", -- BNE  R12, R0, D08_I
+        162 => x"12BBFFFF", -- ADDI R11, R11, -1
+        163 => x"51B0FFFB", -- BNE  R11, R0, D08_O
+        164 => x"01F00900", -- LDI R15, 0x0900
+        165 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        166 => x"011000FF", -- LDI R1, 0x00FF
+        167 => x"012000AA", -- LDI R2, 0x00AA
+        168 => x"22310002", -- XOR R3, R1, R2
+        169 => x"01400055", -- LDI R4, 0x0055
+        170 => x"50340003", -- BEQ R3, R4, PASS_09
+        171 => x"01F00902", -- LDI R15, 0x0902
+        172 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        173 => x"FF000000", -- HALT
+        174 => x"01F00901", -- LDI R15, 0x0901
+        175 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        176 => x"01B00008", -- LDI R11, 8
+        177 => x"01C00000", -- LDI R12, 0
+        178 => x"12CC0001", -- ADDI R12, R12, 1
+        179 => x"51C0FFFE", -- BNE  R12, R0, D09_I
+        180 => x"12BBFFFF", -- ADDI R11, R11, -1
+        181 => x"51B0FFFB", -- BNE  R11, R0, D09_O
+        182 => x"01F00A00", -- LDI R15, 0x0A00
+        183 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        184 => x"0110ABCD", -- LDI R1, 0xABCD
+        185 => x"233100FF", -- ANDI R3, R1, 0x00FF
+        186 => x"014000CD", -- LDI R4, 0x00CD
+        187 => x"50340003", -- BEQ R3, R4, PASS_0A
+        188 => x"01F00A02", -- LDI R15, 0x0A02
+        189 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        190 => x"FF000000", -- HALT
+        191 => x"01F00A01", -- LDI R15, 0x0A01
+        192 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        193 => x"01B00008", -- LDI R11, 8
+        194 => x"01C00000", -- LDI R12, 0
+        195 => x"12CC0001", -- ADDI R12, R12, 1
+        196 => x"51C0FFFE", -- BNE  R12, R0, D0A_I
+        197 => x"12BBFFFF", -- ADDI R11, R11, -1
+        198 => x"51B0FFFB", -- BNE  R11, R0, D0A_O
+        199 => x"01F00B00", -- LDI R15, 0x0B00
+        200 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        201 => x"01101200", -- LDI R1, 0x1200
+        202 => x"24210034", -- ORI R2, R1, 0x0034
+        203 => x"01301234", -- LDI R3, 0x1234
+        204 => x"50230003", -- BEQ R2, R3, PASS_0B
+        205 => x"01F00B02", -- LDI R15, 0x0B02
+        206 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        207 => x"FF000000", -- HALT
+        208 => x"01F00B01", -- LDI R15, 0x0B01
+        209 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        210 => x"01B00008", -- LDI R11, 8
+        211 => x"01C00000", -- LDI R12, 0
+        212 => x"12CC0001", -- ADDI R12, R12, 1
+        213 => x"51C0FFFE", -- BNE  R12, R0, D0B_I
+        214 => x"12BBFFFF", -- ADDI R11, R11, -1
+        215 => x"51B0FFFB", -- BNE  R11, R0, D0B_O
+        216 => x"01F00C00", -- LDI R15, 0x0C00
+        217 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        218 => x"01100F0F", -- LDI R1, 0x0F0F
+        219 => x"252100FF", -- XORI R2, R1, 0x00FF
+        220 => x"01300FF0", -- LDI R3, 0x0FF0
+        221 => x"50230003", -- BEQ R2, R3, PASS_0C
+        222 => x"01F00C02", -- LDI R15, 0x0C02
+        223 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        224 => x"FF000000", -- HALT
+        225 => x"01F00C01", -- LDI R15, 0x0C01
+        226 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        227 => x"01B00008", -- LDI R11, 8
+        228 => x"01C00000", -- LDI R12, 0
+        229 => x"12CC0001", -- ADDI R12, R12, 1
+        230 => x"51C0FFFE", -- BNE  R12, R0, D0C_I
+        231 => x"12BBFFFF", -- ADDI R11, R11, -1
+        232 => x"51B0FFFB", -- BNE  R11, R0, D0C_O
+        233 => x"01F00D00", -- LDI R15, 0x0D00
+        234 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        235 => x"01100001", -- LDI R1, 1
+        236 => x"30210004", -- SHL R2, R1, 4
+        237 => x"01300010", -- LDI R3, 16
+        238 => x"50230003", -- BEQ R2, R3, PASS_0D
+        239 => x"01F00D02", -- LDI R15, 0x0D02
+        240 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        241 => x"FF000000", -- HALT
+        242 => x"01F00D01", -- LDI R15, 0x0D01
+        243 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        244 => x"01B00008", -- LDI R11, 8
+        245 => x"01C00000", -- LDI R12, 0
+        246 => x"12CC0001", -- ADDI R12, R12, 1
+        247 => x"51C0FFFE", -- BNE  R12, R0, D0D_I
+        248 => x"12BBFFFF", -- ADDI R11, R11, -1
+        249 => x"51B0FFFB", -- BNE  R11, R0, D0D_O
+        250 => x"01F00E00", -- LDI R15, 0x0E00
+        251 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        252 => x"01100080", -- LDI R1, 128
+        253 => x"31210003", -- SHR R2, R1, 3
+        254 => x"01300010", -- LDI R3, 16
+        255 => x"50230003", -- BEQ R2, R3, PASS_0E
+        256 => x"01F00E02", -- LDI R15, 0x0E02
+        257 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        258 => x"FF000000", -- HALT
+        259 => x"01F00E01", -- LDI R15, 0x0E01
+        260 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        261 => x"01B00008", -- LDI R11, 8
+        262 => x"01C00000", -- LDI R12, 0
+        263 => x"12CC0001", -- ADDI R12, R12, 1
+        264 => x"51C0FFFE", -- BNE  R12, R0, D0E_I
+        265 => x"12BBFFFF", -- ADDI R11, R11, -1
+        266 => x"51B0FFFB", -- BNE  R11, R0, D0E_O
+        267 => x"01F00F00", -- LDI R15, 0x0F00
+        268 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        269 => x"0110FFF0", -- LDI R1, 0xFFF0      -- -16
+        270 => x"32210002", -- SAR R2, R1, 2       -- -4
+        271 => x"0130FFFC", -- LDI R3, 0xFFFC
+        272 => x"50230003", -- BEQ R2, R3, PASS_0F
+        273 => x"01F00F02", -- LDI R15, 0x0F02
+        274 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        275 => x"FF000000", -- HALT
+        276 => x"01F00F01", -- LDI R15, 0x0F01
+        277 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        278 => x"01B00008", -- LDI R11, 8
+        279 => x"01C00000", -- LDI R12, 0
+        280 => x"12CC0001", -- ADDI R12, R12, 1
+        281 => x"51C0FFFE", -- BNE  R12, R0, D0F_I
+        282 => x"12BBFFFF", -- ADDI R11, R11, -1
+        283 => x"51B0FFFB", -- BNE  R11, R0, D0F_O
+        284 => x"01F01000", -- LDI R15, 0x1000
+        285 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        286 => x"010000FF", -- LDI R0, 0x00FF      -- should be ignored
+        287 => x"01100000", -- LDI R1, 0
+        288 => x"50010003", -- BEQ R0, R1, PASS_10
+        289 => x"01F01002", -- LDI R15, 0x1002
+        290 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        291 => x"FF000000", -- HALT
+        292 => x"01F01001", -- LDI R15, 0x1001
+        293 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        294 => x"01B00008", -- LDI R11, 8
+        295 => x"01C00000", -- LDI R12, 0
+        296 => x"12CC0001", -- ADDI R12, R12, 1
+        297 => x"51C0FFFE", -- BNE  R12, R0, D10_I
+        298 => x"12BBFFFF", -- ADDI R11, R11, -1
+        299 => x"51B0FFFB", -- BNE  R11, R0, D10_O
+        300 => x"01F01100", -- LDI R15, 0x1100
+        301 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        302 => x"01101234", -- LDI R1, 0x1234
+        303 => x"41102000", -- ST  R1, [0x2000]
+        304 => x"01100000", -- LDI R1, 0
+        305 => x"40202000", -- LD  R2, [0x2000]
+        306 => x"01301234", -- LDI R3, 0x1234
+        307 => x"50230003", -- BEQ R2, R3, PASS_11
+        308 => x"01F01102", -- LDI R15, 0x1102
+        309 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        310 => x"FF000000", -- HALT
+        311 => x"01F01101", -- LDI R15, 0x1101
+        312 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        313 => x"01B00008", -- LDI R11, 8
+        314 => x"01C00000", -- LDI R12, 0
+        315 => x"12CC0001", -- ADDI R12, R12, 1
+        316 => x"51C0FFFE", -- BNE  R12, R0, D11_I
+        317 => x"12BBFFFF", -- ADDI R11, R11, -1
+        318 => x"51B0FFFB", -- BNE  R11, R0, D11_O
+        319 => x"01F01200", -- LDI R15, 0x1200
+        320 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        321 => x"01502000", -- LDI R5, 0x2000
+        322 => x"0110BEEF", -- LDI R1, 0xBEEF
+        323 => x"43150004", -- STX R1, [R5 + 4]
+        324 => x"01100000", -- LDI R1, 0
+        325 => x"42250004", -- LDX R2, [R5 + 4]
+        326 => x"0130BEEF", -- LDI R3, 0xBEEF
+        327 => x"50230003", -- BEQ R2, R3, PASS_12
+        328 => x"01F01202", -- LDI R15, 0x1202
+        329 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        330 => x"FF000000", -- HALT
+        331 => x"01F01201", -- LDI R15, 0x1201
+        332 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        333 => x"01B00008", -- LDI R11, 8
+        334 => x"01C00000", -- LDI R12, 0
+        335 => x"12CC0001", -- ADDI R12, R12, 1
+        336 => x"51C0FFFE", -- BNE  R12, R0, D12_I
+        337 => x"12BBFFFF", -- ADDI R11, R11, -1
+        338 => x"51B0FFFB", -- BNE  R11, R0, D12_O
+        339 => x"01F01300", -- LDI R15, 0x1300
+        340 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        341 => x"01100001", -- LDI R1, 1
+        342 => x"01200002", -- LDI R2, 2
+        343 => x"51120001", -- BNE R1, R2, T13_BNE_OK
+        344 => x"52000005", -- J   FAIL_13
+        345 => x"52000001", -- J   T13_SKIP
+        346 => x"52000003", -- J   FAIL_13
+        347 => x"0130CAFE", -- LDI R3, 0xCAFE
+        348 => x"0140CAFE", -- LDI R4, 0xCAFE
+        349 => x"50340003", -- BEQ R3, R4, PASS_13
+        350 => x"01F01302", -- LDI R15, 0x1302
+        351 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        352 => x"FF000000", -- HALT
+        353 => x"01F01301", -- LDI R15, 0x1301
+        354 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        355 => x"01F0FF01", -- LDI R15, 0xFF01
+        356 => x"41F0FFFC", -- ST  R15, [0xFFFC]
+        357 => x"5200FFFD", -- J   ALL_PASS
         others => x"00000000"
     );
 
-    -- Force Quartus to implement the ROM in M9K blocks
     signal rom : rom_type := ROM_CONTENT;
+
     attribute ramstyle : string;
     attribute ramstyle of rom : signal is "M9K";
 begin
@@ -311,7 +391,7 @@ begin
         if rst = '1' then
             data_out <= rom(0);
         elsif rising_edge(clk) then
-            if to_integer(addr) < 256 then
+            if to_integer(addr) < ROM_WORDS then
                 data_out <= rom(to_integer(addr));
             else
                 data_out <= (others => '0');
@@ -319,3 +399,4 @@ begin
         end if;
     end process;
 end architecture;
+

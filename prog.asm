@@ -1,338 +1,559 @@
 -- ============================================================
--- CPU DIAGNOSTIC ROM SOURCE
--- Reconstructed from VHDL Hex Dump
+-- CPU + TFT DIAGNOSTIC ROM SOURCE
+--
+-- TFT MMIO:
+--   0xFFFD: TFT framebuffer enable (bit0)
+--   0xFFFC: TFT OSD status word
+--           [15:8] = test_id (hex on-screen)
+--           [1:0]  = state: 00 RUN, 01 PASS, 10 FAIL
+--
+-- Framebuffer:
+--   0x3000 - 0x7FFF (128*160 RGB565)
 -- ============================================================
 
+START:
+    -- Enable framebuffer mode (display starts in internal color-bar mode after reset)
+    LDI R1, 1
+    ST  R1, [0xFFFD]
+
+    -- OSD: T00 UNKN / RUN
+    LDI R15, 0x0000
+    ST  R15, [0xFFFC]
+
+    -- Clear framebuffer to black
+    LDI R5, 0x3000
+    LDI R6, 0x5000
+    LDI R7, 0
+CLR_FB:
+    STX R7, [R5 + 0]
+    ADDI R5, R5, 1
+    ADDI R6, R6, -1
+    BNE  R6, R0, CLR_FB
+
+    -- Corner pixels (sanity for addressing)
+    LDI R7, 0xF800
+    ST  R7, [0x3000]  -- top-left (red)
+    LDI R7, 0x07E0
+    ST  R7, [0x307F]  -- top-right (green)
+    LDI R7, 0x001F
+    ST  R7, [0x7F80]  -- bottom-left (blue)
+    LDI R7, 0xFFFF
+    ST  R7, [0x7FFF]  -- bottom-right (white)
+
+    -- Horizontal white line at y=20 (addr 0x3000 + 20*128 = 0x3A00)
+    LDI R5, 0x3A00
+    LDI R6, 128
+    LDI R7, 0xFFFF
+LINE20:
+    STX R7, [R5 + 0]
+    ADDI R5, R5, 1
+    ADDI R6, R6, -1
+    BNE  R6, R0, LINE20
+
 -- ============================================================
--- TEST 01: LDI (Load Immediate)
+-- TEST 01: LDI
 -- ============================================================
 TEST_01:
-    LDI R15, 0x0001     ; Test 01
-    ST  R15, [0xFFFE]   ; Display "001"
-    LDI R1, 0x00AB      ; R1 = 0xAB
-    LDI R2, 0x00AB      ; Expected
-    BEQ R1, R2, PASS_01 ; Pass if equal
-    
-    -- FAIL 01
-    LDI R15, 0x0201     ; FAIL code
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0100
+    ST  R15, [0xFFFC]
+    LDI R1, 0x00AB
+    LDI R2, 0x00AB
+    BEQ R1, R2, PASS_01
+FAIL_01:
+    LDI R15, 0x0102
+    ST  R15, [0xFFFC]
     HALT
-    
 PASS_01:
-    LDI R15, 0x0101     ; PASS code
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0101
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D01_O:
+    LDI R12, 0
+D01_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D01_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D01_O
 
 -- ============================================================
--- TEST 02: MV (Register Move)
+-- TEST 02: MV
 -- ============================================================
 TEST_02:
-    LDI R15, 0x0002
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0200
+    ST  R15, [0xFFFC]
     LDI R1, 0x00CD
-    MV  R3, R1          ; R3 = R1
+    MV  R3, R1
     BEQ R3, R1, PASS_02
-    
-    -- FAIL 02
+FAIL_02:
     LDI R15, 0x0202
-    ST  R15, [0xFFFE]
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_02:
-    LDI R15, 0x0102
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0201
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D02_O:
+    LDI R12, 0
+D02_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D02_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D02_O
 
 -- ============================================================
--- TEST 03: ADD (5 + 7 = 12)
+-- TEST 03: ADD
 -- ============================================================
 TEST_03:
-    LDI R15, 0x0003
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0300
+    ST  R15, [0xFFFC]
     LDI R1, 5
     LDI R2, 7
-    ADD R3, R1, R2      ; R3 = 12
+    ADD R3, R1, R2
     LDI R4, 12
     BEQ R3, R4, PASS_03
-    
-    -- FAIL 03
-    LDI R15, 0x0203
-    ST  R15, [0xFFFE]
+FAIL_03:
+    LDI R15, 0x0302
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_03:
-    LDI R15, 0x0103
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0301
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D03_O:
+    LDI R12, 0
+D03_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D03_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D03_O
 
 -- ============================================================
--- TEST 04: SUB (20 - 8 = 12)
+-- TEST 04: SUB
 -- ============================================================
 TEST_04:
-    LDI R15, 0x0004
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0400
+    ST  R15, [0xFFFC]
     LDI R1, 20
     LDI R2, 8
-    SUB R3, R1, R2      ; R3 = 12
+    SUB R3, R1, R2
     LDI R4, 12
     BEQ R3, R4, PASS_04
-    
-    -- FAIL 04
-    LDI R15, 0x0204
-    ST  R15, [0xFFFE]
+FAIL_04:
+    LDI R15, 0x0402
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_04:
-    LDI R15, 0x0104
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0401
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D04_O:
+    LDI R12, 0
+D04_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D04_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D04_O
 
 -- ============================================================
--- TEST 05: ADDI (100 + 55 = 155)
+-- TEST 05: ADDI (positive)
 -- ============================================================
 TEST_05:
-    LDI R15, 0x0005
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0500
+    ST  R15, [0xFFFC]
     LDI R1, 100
-    ADDI R2, R1, 55     ; R2 = 155
+    ADDI R2, R1, 55
     LDI R3, 155
     BEQ R2, R3, PASS_05
-    
-    -- FAIL 05
-    LDI R15, 0x0205
-    ST  R15, [0xFFFE]
+FAIL_05:
+    LDI R15, 0x0502
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_05:
-    LDI R15, 0x0105
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0501
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D05_O:
+    LDI R12, 0
+D05_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D05_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D05_O
 
 -- ============================================================
--- TEST 06: AND (0xFF & 0x0F = 0x0F)
+-- TEST 06: ADDI (negative)
 -- ============================================================
 TEST_06:
-    LDI R15, 0x0006
-    ST  R15, [0xFFFE]
-    LDI R1, 0x00FF
-    LDI R2, 0x0F
-    AND R3, R1, R2
-    LDI R4, 0x0F
-    BEQ R3, R4, PASS_06
-    
-    -- FAIL 06
-    LDI R15, 0x0206
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0600
+    ST  R15, [0xFFFC]
+    LDI R1, 100
+    ADDI R2, R1, -10
+    LDI R3, 90
+    BEQ R2, R3, PASS_06
+FAIL_06:
+    LDI R15, 0x0602
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_06:
-    LDI R15, 0x0106
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0601
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D06_O:
+    LDI R12, 0
+D06_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D06_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D06_O
 
 -- ============================================================
--- TEST 07: OR (0xF0 | 0x0F = 0xFF)
+-- TEST 07: AND
 -- ============================================================
 TEST_07:
-    LDI R15, 0x0007
-    ST  R15, [0xFFFE]
-    LDI R1, 0xF0
-    LDI R2, 0x0F
-    OR  R3, R1, R2
-    LDI R4, 0xFF
+    LDI R15, 0x0700
+    ST  R15, [0xFFFC]
+    LDI R1, 0x00FF
+    LDI R2, 0x000F
+    AND R3, R1, R2
+    LDI R4, 0x000F
     BEQ R3, R4, PASS_07
-    
-    -- FAIL 07
-    LDI R15, 0x0207
-    ST  R15, [0xFFFE]
+FAIL_07:
+    LDI R15, 0x0702
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_07:
-    LDI R15, 0x0107
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0701
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D07_O:
+    LDI R12, 0
+D07_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D07_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D07_O
 
 -- ============================================================
--- TEST 08: XOR (0xFF ^ 0xAA = 0x55)
+-- TEST 08: OR
 -- ============================================================
 TEST_08:
-    LDI R15, 0x0008
-    ST  R15, [0xFFFE]
-    LDI R1, 0xFF
-    LDI R2, 0xAA
-    XOR R3, R1, R2
-    LDI R4, 0x55
+    LDI R15, 0x0800
+    ST  R15, [0xFFFC]
+    LDI R1, 0x00F0
+    LDI R2, 0x000F
+    OR  R3, R1, R2
+    LDI R4, 0x00FF
     BEQ R3, R4, PASS_08
-    
-    -- FAIL 08
-    LDI R15, 0x0208
-    ST  R15, [0xFFFE]
+FAIL_08:
+    LDI R15, 0x0802
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_08:
-    LDI R15, 0x0108
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0801
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D08_O:
+    LDI R12, 0
+D08_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D08_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D08_O
 
 -- ============================================================
--- TEST 09: ANDI (0xABCD & 0x00FF = 0x00CD)
+-- TEST 09: XOR
 -- ============================================================
 TEST_09:
-    LDI R15, 0x0009
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0900
+    ST  R15, [0xFFFC]
+    LDI R1, 0x00FF
+    LDI R2, 0x00AA
+    XOR R3, R1, R2
+    LDI R4, 0x0055
+    BEQ R3, R4, PASS_09
+FAIL_09:
+    LDI R15, 0x0902
+    ST  R15, [0xFFFC]
+    HALT
+PASS_09:
+    LDI R15, 0x0901
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D09_O:
+    LDI R12, 0
+D09_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D09_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D09_O
+
+-- ============================================================
+-- TEST 0A: ANDI
+-- ============================================================
+TEST_0A:
+    LDI R15, 0x0A00
+    ST  R15, [0xFFFC]
     LDI R1, 0xABCD
     ANDI R3, R1, 0x00FF
     LDI R4, 0x00CD
-    BEQ R3, R4, PASS_09
-    
-    -- FAIL 09
-    LDI R15, 0x0209
-    ST  R15, [0xFFFE]
+    BEQ R3, R4, PASS_0A
+FAIL_0A:
+    LDI R15, 0x0A02
+    ST  R15, [0xFFFC]
     HALT
-
-PASS_09:
-    LDI R15, 0x0109
-    ST  R15, [0xFFFE]
+PASS_0A:
+    LDI R15, 0x0A01
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D0A_O:
+    LDI R12, 0
+D0A_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D0A_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D0A_O
 
 -- ============================================================
--- TEST 0A: SHL (1 << 4 = 16)
+-- TEST 0B: ORI
 -- ============================================================
-TEST_0A:
-    LDI R15, 0x000A
-    ST  R15, [0xFFFE]
+TEST_0B:
+    LDI R15, 0x0B00
+    ST  R15, [0xFFFC]
+    LDI R1, 0x1200
+    ORI R2, R1, 0x0034
+    LDI R3, 0x1234
+    BEQ R2, R3, PASS_0B
+FAIL_0B:
+    LDI R15, 0x0B02
+    ST  R15, [0xFFFC]
+    HALT
+PASS_0B:
+    LDI R15, 0x0B01
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D0B_O:
+    LDI R12, 0
+D0B_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D0B_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D0B_O
+
+-- ============================================================
+-- TEST 0C: XORI
+-- ============================================================
+TEST_0C:
+    LDI R15, 0x0C00
+    ST  R15, [0xFFFC]
+    LDI R1, 0x0F0F
+    XORI R2, R1, 0x00FF
+    LDI R3, 0x0FF0
+    BEQ R2, R3, PASS_0C
+FAIL_0C:
+    LDI R15, 0x0C02
+    ST  R15, [0xFFFC]
+    HALT
+PASS_0C:
+    LDI R15, 0x0C01
+    ST  R15, [0xFFFC]
+    LDI R11, 8
+D0C_O:
+    LDI R12, 0
+D0C_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D0C_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D0C_O
+
+-- ============================================================
+-- TEST 0D: SHL
+-- ============================================================
+TEST_0D:
+    LDI R15, 0x0D00
+    ST  R15, [0xFFFC]
     LDI R1, 1
     SHL R2, R1, 4
     LDI R3, 16
-    BEQ R2, R3, PASS_0A
-    
-    -- FAIL 0A
-    LDI R15, 0x020A
-    ST  R15, [0xFFFE]
+    BEQ R2, R3, PASS_0D
+FAIL_0D:
+    LDI R15, 0x0D02
+    ST  R15, [0xFFFC]
     HALT
-
-PASS_0A:
-    LDI R15, 0x010A
-    ST  R15, [0xFFFE]
+PASS_0D:
+    LDI R15, 0x0D01
+    ST  R15, [0xFFFC]
+    LDI R11, 24
+D0D_O:
+    LDI R12, 0
+D0D_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D0D_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D0D_O
 
 -- ============================================================
--- TEST 0B: SHR (128 >> 3 = 16)
+-- TEST 0E: SHR
 -- ============================================================
-TEST_0B:
-    LDI R15, 0x000B
-    ST  R15, [0xFFFE]
+TEST_0E:
+    LDI R15, 0x0E00
+    ST  R15, [0xFFFC]
     LDI R1, 128
     SHR R2, R1, 3
     LDI R3, 16
-    BEQ R2, R3, PASS_0B
-    
-    -- FAIL 0B
-    LDI R15, 0x020B
-    ST  R15, [0xFFFE]
-    HALT
-
-PASS_0B:
-    LDI R15, 0x010B
-    ST  R15, [0xFFFE]
-
--- ============================================================
--- TEST 0C: R0 Hardwired Zero
--- ============================================================
-TEST_0C:
-    LDI R15, 0x000C
-    ST  R15, [0xFFFE]
-    LDI R0, 0x00FF      ; Should be ignored
-    LDI R1, 0
-    BEQ R0, R1, PASS_0C ; R0 should still be 0
-    
-    -- FAIL 0C
-    LDI R15, 0x020C
-    ST  R15, [0xFFFE]
-    HALT
-
-PASS_0C:
-    LDI R15, 0x010C
-    ST  R15, [0xFFFE]
-
--- ============================================================
--- TEST 0D: ST/LD Memory
--- ============================================================
-TEST_0D:
-    LDI R15, 0x000D
-    ST  R15, [0xFFFE]
-    LDI R1, 0x1234
-    ST  R1, [0x2000]
-    LDI R1, 0           ; Clear R1
-    LD  R2, [0x2000]    ; Load back
-    LDI R3, 0x1234
-    BEQ R2, R3, PASS_0D
-    
-    -- FAIL 0D
-    LDI R15, 0x020D
-    ST  R15, [0xFFFE]
-    HALT
-
-PASS_0D:
-    LDI R15, 0x010D
-    ST  R15, [0xFFFE]
-
--- ============================================================
--- TEST 0E: LDX/STX Base+Offset
--- ============================================================
-TEST_0E:
-    LDI R15, 0x000E
-    ST  R15, [0xFFFE]
-    LDI R5, 0x2000      ; Base
-    LDI R1, 0xBEEF
-    STX R1, [R5 + 4]    ; Store at 0x2004
-    LDI R1, 0
-    LDX R2, [R5 + 4]    ; Load from 0x2004
-    LDI R3, 0xBEEF
     BEQ R2, R3, PASS_0E
-    
-    -- FAIL 0E
-    LDI R15, 0x020E
-    ST  R15, [0xFFFE]
+FAIL_0E:
+    LDI R15, 0x0E02
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_0E:
-    LDI R15, 0x010E
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0E01
+    ST  R15, [0xFFFC]
+    LDI R11, 24
+D0E_O:
+    LDI R12, 0
+D0E_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D0E_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D0E_O
 
 -- ============================================================
--- TEST 0F: ADDI Negative
+-- TEST 0F: SAR (arithmetic shift right)
 -- ============================================================
 TEST_0F:
-    LDI R15, 0x000F
-    ST  R15, [0xFFFE]
-    LDI R1, 100
-    ADDI R2, R1, -10    ; 100 - 10 = 90
-    LDI R3, 90
+    LDI R15, 0x0F00
+    ST  R15, [0xFFFC]
+    LDI R1, 0xFFF0      -- -16
+    SAR R2, R1, 2       -- -4
+    LDI R3, 0xFFFC
     BEQ R2, R3, PASS_0F
-    
-    -- FAIL 0F
-    LDI R15, 0x020F
-    ST  R15, [0xFFFE]
+FAIL_0F:
+    LDI R15, 0x0F02
+    ST  R15, [0xFFFC]
     HALT
-
 PASS_0F:
-    LDI R15, 0x010F
-    ST  R15, [0xFFFE]
+    LDI R15, 0x0F01
+    ST  R15, [0xFFFC]
+    LDI R11, 24
+D0F_O:
+    LDI R12, 0
+D0F_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D0F_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D0F_O
 
 -- ============================================================
--- VICTORY LOOP
+-- TEST 10: R0 hardwired zero
 -- ============================================================
-VICTORY:
-    LDI R14, 8          ; Unused in this specific loop version, but kept
-    LDI R1, 0x03FF      ; ON pattern
-    LDI R2, 0x0000      ; OFF pattern
+TEST_10:
+    LDI R15, 0x1000
+    ST  R15, [0xFFFC]
+    LDI R0, 0x00FF      -- should be ignored
+    LDI R1, 0
+    BEQ R0, R1, PASS_10
+FAIL_10:
+    LDI R15, 0x1002
+    ST  R15, [0xFFFC]
+    HALT
+PASS_10:
+    LDI R15, 0x1001
+    ST  R15, [0xFFFC]
+    LDI R11, 24
+D10_O:
+    LDI R12, 0
+D10_I:
+    ADDI R12, R12, 1
+    BNE  R12, R0, D10_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D10_O
 
-BLINK_LOOP:
-    ST  R1, [0xFFFE]    ; Display ON
-    
-    -- Delay ON
-    LDI R12, 0xFFF0     ; Short delay counter
-DELAY_ON:
+-- ============================================================
+-- TEST 11: ST/LD absolute memory (0x2000)
+-- ============================================================
+TEST_11:
+    LDI R15, 0x1100
+    ST  R15, [0xFFFC]
+    LDI R1, 0x1234
+    ST  R1, [0x2000]
+    LDI R1, 0
+    LD  R2, [0x2000]
+    LDI R3, 0x1234
+    BEQ R2, R3, PASS_11
+FAIL_11:
+    LDI R15, 0x1102
+    ST  R15, [0xFFFC]
+    HALT
+PASS_11:
+    LDI R15, 0x1101
+    ST  R15, [0xFFFC]
+    LDI R11, 24
+D11_O:
+    LDI R12, 0
+D11_I:
     ADDI R12, R12, 1
-    BNE  R12, R0, DELAY_ON
-    
-    ST  R2, [0xFFFE]    ; Display OFF
-    
-    -- Delay OFF
-    LDI R12, 0xFFF0     ; Short delay counter
-DELAY_OFF:
+    BNE  R12, R0, D11_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D11_O
+
+-- ============================================================
+-- TEST 12: LDX/STX base+offset memory (0x2000 + 4)
+-- ============================================================
+TEST_12:
+    LDI R15, 0x1200
+    ST  R15, [0xFFFC]
+    LDI R5, 0x2000
+    LDI R1, 0xBEEF
+    STX R1, [R5 + 4]
+    LDI R1, 0
+    LDX R2, [R5 + 4]
+    LDI R3, 0xBEEF
+    BEQ R2, R3, PASS_12
+FAIL_12:
+    LDI R15, 0x1202
+    ST  R15, [0xFFFC]
+    HALT
+PASS_12:
+    LDI R15, 0x1201
+    ST  R15, [0xFFFC]
+    LDI R11, 24
+D12_O:
+    LDI R12, 0
+D12_I:
     ADDI R12, R12, 1
-    BNE  R12, R0, DELAY_OFF
-    
-    J BLINK_LOOP
+    BNE  R12, R0, D12_I
+    ADDI R11, R11, -1
+    BNE  R11, R0, D12_O
+
+-- ============================================================
+-- TEST 13: Branches (BEQ/BNE) + Jump (J)
+-- ============================================================
+TEST_13:
+    LDI R15, 0x1300
+    ST  R15, [0xFFFC]
+    LDI R1, 1
+    LDI R2, 2
+    BNE R1, R2, T13_BNE_OK
+    J   FAIL_13
+T13_BNE_OK:
+    J   T13_SKIP
+    J   FAIL_13
+T13_SKIP:
+    LDI R3, 0xCAFE
+    LDI R4, 0xCAFE
+    BEQ R3, R4, PASS_13
+FAIL_13:
+    LDI R15, 0x1302
+    ST  R15, [0xFFFC]
+    HALT
+PASS_13:
+    LDI R15, 0x1301
+    ST  R15, [0xFFFC]
+
+-- ============================================================
+-- ALL TESTS PASSED
+-- ============================================================
+ALL_PASS:
+    LDI R15, 0xFF01
+    ST  R15, [0xFFFC]
+    J   ALL_PASS
