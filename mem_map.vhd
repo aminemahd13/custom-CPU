@@ -204,8 +204,8 @@ begin
 
     -- ================================================================
     -- Read mux (COMBINATIONAL): CPU expects data during the cycle
-    -- after it asserts mem_re. ram_dout is already a registered
-    -- synchronous RAM output (M9K-friendly).
+    -- after it asserts mem_re. ram_dout is already registered
+    -- synchronous RAM output ( for M9K).
     -- ================================================================
     mem_rdata <=
         ram_dout             when (mem_re = '1' and to_integer(mem_addr) >= 16#2000# and to_integer(mem_addr) <= 16#2FFF#) else

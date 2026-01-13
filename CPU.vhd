@@ -217,7 +217,7 @@ begin
     -- Arduino header wiring (DE10-Lite): ARDUINO_IO(N) is Arduino pin N
     -- Your wiring:
     --   IO10 <= CS, IO8 <= RESET, IO9 <= DC, IO11 <= MOSI/SDA, IO13 <= SCK
-    arduino_drive: process(all)
+    arduino_drive: process(tft_cs_n, tft_reset_n, tft_dc, tft_mosi, tft_sck)
     begin
         arduino_io_drv <= (others => 'Z');
         arduino_io_drv(10) <= tft_cs_n;     -- IO10 (CS, active low)

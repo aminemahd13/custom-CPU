@@ -32,7 +32,11 @@ architecture rtl of tft_st7735 is
     constant CYCLES_PER_MS : integer := CLK_HZ / 1000;
 
     constant PIXELS : integer := WIDTH * HEIGHT;
-    constant OSD_HEIGHT : integer := 16;
+    constant UI_HEADER_H   : integer := 16;
+    constant UI_LIST_WIDTH : integer := 96; -- left area used for test list
+    constant UI_ROW_H      : integer := 7;  -- 5x7 font height
+    constant UI_ROWS       : integer := 19; -- tests 01..13 (hex) => 19 rows
+    constant UI_FIRST_Y    : integer := UI_HEADER_H;
 
     type int5_t is array (0 to 4) of integer;
 
@@ -73,6 +77,11 @@ architecture rtl of tft_st7735 is
     signal pixel_reg : std_logic_vector(15 downto 0) := (others => '0');
     signal use_fb_latched : std_logic := '0';
     signal osd_status_latched : std_logic_vector(15 downto 0) := (others => '0');
+    
+    type test_state_arr is array (0 to 31) of std_logic_vector(1 downto 0);
+    signal test_states : test_state_arr := (others => "11"); -- 00 RUN, 01 PASS, 10 FAIL, 11 ----
+    signal last_osd_status : std_logic_vector(15 downto 0) := (others => '0');
+    signal all_pass_seen : std_logic := '0';
 
     -- SPI byte engine
     signal spi_start : std_logic := '0';
@@ -562,62 +571,130 @@ architecture rtl of tft_st7735 is
         return std_logic_vector(to_unsigned(txt, 8));
     end function;
 
-    function osd_pixel(i : integer; base_pixel : std_logic_vector(15 downto 0); status : std_logic_vector(15 downto 0)) return std_logic_vector is
+    function state_color(s : std_logic_vector(1 downto 0)) return std_logic_vector is
+    begin
+        if s = "01" then
+            return x"07E0"; -- green
+        elsif s = "10" then
+            return x"F800"; -- red
+        elsif s = "00" then
+            return x"FFE0"; -- yellow
+        else
+            return x"7BEF"; -- grey
+        end if;
+    end function;
+
+    function state_word_char(s : std_logic_vector(1 downto 0); pos : integer) return std_logic_vector is
+    begin
+        if s = "01" then -- PASS
+            case pos is
+                when 0 => return x"50"; -- P
+                when 1 => return x"41"; -- A
+                when 2 => return x"53"; -- S
+                when 3 => return x"53"; -- S
+                when others => return x"20";
+            end case;
+        elsif s = "10" then -- FAIL
+            case pos is
+                when 0 => return x"46"; -- F
+                when 1 => return x"41"; -- A
+                when 2 => return x"49"; -- I
+                when 3 => return x"4C"; -- L
+                when others => return x"20";
+            end case;
+        elsif s = "00" then -- RUN
+            case pos is
+                when 0 => return x"52"; -- R
+                when 1 => return x"55"; -- U
+                when 2 => return x"4E"; -- N
+                when others => return x"20";
+            end case;
+        else -- ----
+            case pos is
+                when 0 | 1 | 2 | 3 => return x"2D"; -- -
+                when others => return x"20";
+            end case;
+        end if;
+    end function;
+
+    function list_char(test_id : std_logic_vector(7 downto 0); s : std_logic_vector(1 downto 0); pos : integer) return std_logic_vector is
+        variable hi : unsigned(3 downto 0) := unsigned(test_id(7 downto 4));
+        variable lo : unsigned(3 downto 0) := unsigned(test_id(3 downto 0));
+    begin
+        case pos is
+            when 0 => return hex_nibble_to_ascii(hi);
+            when 1 => return hex_nibble_to_ascii(lo);
+            when 2 => return x"20";
+            when 3 | 4 | 5 | 6 | 7 => return test_name_char(test_id, pos - 3);
+            when 8 => return x"20";
+            when 9 | 10 | 11 | 12 => return state_word_char(s, pos - 9);
+            when others => return x"20";
+        end case;
+    end function;
+
+    function ui_pixel(
+        i : integer;
+        base_pixel : std_logic_vector(15 downto 0);
+        status : std_logic_vector(15 downto 0);
+        states : test_state_arr;
+        all_pass : std_logic
+    ) return std_logic_vector is
         variable x : integer;
         variable y : integer;
         variable bg : std_logic_vector(15 downto 0);
         variable fg : std_logic_vector(15 downto 0);
-        variable state : std_logic_vector(1 downto 0) := status(1 downto 0);
-        constant x0 : integer := 2;
         constant cell_w : integer := 6; -- 5 pixels + 1 spacing
+
+        -- Header layout (re-uses line0_char/line1_char)
+        constant hx0 : integer := 2;
         constant line0_y : integer := 1;
         constant line1_y : integer := 9;
+
+        -- List layout
+        constant lx0 : integer := 10;
+        constant marker_x0 : integer := 2;
+        constant marker_x1 : integer := 6;
         variable in_glyph : boolean := false;
-        variable which_line : integer := 0;
         variable row_in_glyph : integer := 0;
         variable col_in_cell : integer := 0;
         variable char_idx : integer := 0;
         variable c : std_logic_vector(7 downto 0) := (others => '0');
         variable bits : std_logic_vector(4 downto 0);
         variable col : integer := 0;
+        variable row_idx : integer := 0;
+        variable y_in_row : integer := 0;
+        variable s : std_logic_vector(1 downto 0) := "11";
+        variable test_id : std_logic_vector(7 downto 0) := (others => '0');
     begin
         x := i mod WIDTH;
         y := i / WIDTH;
 
-        if y >= 0 and y < OSD_HEIGHT then
-            if state = "10" then
-                bg := x"F800"; -- red
-                fg := x"FFFF"; -- white text on red
-            elsif state = "01" then
-                bg := x"07E0"; -- green
-                fg := x"0000"; -- black
-            else
-                bg := x"FFE0"; -- yellow
-                fg := x"0000"; -- black
-            end if;
+        -- Vertical separator between list and visual area
+        if x = UI_LIST_WIDTH - 1 and y >= UI_HEADER_H then
+            return x"FFFF";
+        end if;
 
-            if x >= x0 then
-                col_in_cell := (x - x0) mod cell_w;
-                char_idx := (x - x0) / cell_w;
+        -- Header (full width)
+        if y < UI_HEADER_H then
+            bg := x"0013"; -- dark blue
+            fg := x"FFFF"; -- white
+
+            if x >= hx0 then
+                col_in_cell := (x - hx0) mod cell_w;
+                char_idx := (x - hx0) / cell_w;
 
                 if col_in_cell <= 4 then
                     if y >= line0_y and y < line0_y + 7 then
-                        which_line := 0;
                         row_in_glyph := y - line0_y;
                         in_glyph := true;
+                        c := line0_char(status, char_idx);
                     elsif y >= line1_y and y < line1_y + 7 then
-                        which_line := 1;
                         row_in_glyph := y - line1_y;
                         in_glyph := true;
+                        c := line1_char(status, char_idx);
                     end if;
 
                     if in_glyph then
-                        if which_line = 0 then
-                            c := line0_char(status, char_idx);
-                        else
-                            c := line1_char(status, char_idx);
-                        end if;
-
                         bits := glyph_row_5x7(c, row_in_glyph);
                         col := col_in_cell;
                         if bits(4 - col) = '1' then
@@ -628,6 +705,62 @@ architecture rtl of tft_st7735 is
             end if;
 
             return bg;
+        end if;
+
+        -- Left list area
+        if x < UI_LIST_WIDTH then
+            bg := x"1082"; -- dark gray
+            fg := x"FFFF"; -- default text color
+
+            if y >= UI_FIRST_Y and y < UI_FIRST_Y + (UI_ROWS * UI_ROW_H) then
+                row_idx := (y - UI_FIRST_Y) / UI_ROW_H; -- 0..UI_ROWS-1
+                y_in_row := (y - UI_FIRST_Y) mod UI_ROW_H;
+
+                if (row_idx mod 2) = 1 then
+                    bg := x"0841"; -- alternate darker
+                end if;
+
+                test_id := std_logic_vector(to_unsigned(row_idx + 1, 8)); -- 01..13
+                s := states(row_idx + 1);
+
+                -- Status marker (always visible)
+                if x >= marker_x0 and x <= marker_x1 then
+                    return state_color(s);
+                end if;
+
+                -- Row text
+                if y_in_row >= 0 and y_in_row < 7 and x >= lx0 then
+                    col_in_cell := (x - lx0) mod cell_w;
+                    char_idx := (x - lx0) / cell_w;
+
+                    if col_in_cell <= 4 and char_idx >= 0 and char_idx <= 12 then
+                        row_in_glyph := y_in_row;
+                        c := list_char(test_id, s, char_idx);
+                        bits := glyph_row_5x7(c, row_in_glyph);
+                        col := col_in_cell;
+                        if bits(4 - col) = '1' then
+                            if char_idx >= 9 then
+                                fg := state_color(s);
+                            else
+                                fg := x"FFFF";
+                            end if;
+                            return fg;
+                        end if;
+                    end if;
+                end if;
+
+                -- "ALL PASS" highlight bar once done (in the empty space below the list)
+                if all_pass = '1' and y = UI_FIRST_Y + (UI_ROWS * UI_ROW_H) + 4 then
+                    return x"07E0";
+                end if;
+            end if;
+
+            return bg;
+        end if;
+
+        -- Right visual area: large state block at top-right
+        if y >= UI_HEADER_H and y < UI_HEADER_H + 32 then
+            return state_color(status(1 downto 0));
         end if;
 
         return base_pixel;
@@ -659,6 +792,33 @@ begin
     tft_reset_n <= reset_n_r;
     tft_sck     <= spi_sck_r;
     tft_mosi    <= spi_mosi_r;
+
+    -- ================================================================
+    -- Scoreboard: remember per-test PASS/FAIL/RUN, based on CPU writes
+    -- to the OSD status register.
+    -- ================================================================
+    scoreboard_proc: process(clk, rst)
+        variable idx : integer range 0 to 31;
+    begin
+        if rst = '1' then
+            test_states <= (others => "11");
+            last_osd_status <= (others => '0');
+            all_pass_seen <= '0';
+        elsif rising_edge(clk) then
+            if osd_status /= last_osd_status then
+                last_osd_status <= osd_status;
+
+                if osd_status(15 downto 8) = x"FF" and osd_status(1 downto 0) = "01" then
+                    all_pass_seen <= '1';
+                else
+                    idx := to_integer(unsigned(osd_status(12 downto 8))); -- test_id[4:0]
+                    if idx >= 1 and idx <= 31 then
+                        test_states(idx) <= osd_status(1 downto 0);
+                    end if;
+                end if;
+            end if;
+        end if;
+    end process scoreboard_proc;
 
     -- ================================================================
     -- SPI byte sender (Mode 0): data changes on falling edge, sampled
@@ -881,9 +1041,9 @@ begin
 
                 when S_PIXEL_LATCH =>
                     if use_fb_latched = '1' then
-                        pixel_reg <= osd_pixel(pixel_idx, fb_data, osd_status_latched);
+                        pixel_reg <= ui_pixel(pixel_idx, fb_data, osd_status_latched, test_states, all_pass_seen);
                     else
-                        pixel_reg <= osd_pixel(pixel_idx, pattern_rgb565(pixel_idx), osd_status_latched);
+                        pixel_reg <= ui_pixel(pixel_idx, pattern_rgb565(pixel_idx), osd_status_latched, test_states, all_pass_seen);
                     end if;
                     state <= S_PIXEL_SEND_MSB;
 
